@@ -7,6 +7,8 @@ import { AiConnectionField } from "@/components/ai-connections/AiConnectionField
 import { AgentProviderConnection, type ProviderConnection } from "@/components/new-agent/AgentProviderConnection";
 import { useConnectionModels } from "@/components/ai-connections/useConnectionModels";
 import { ModelDropdown } from "@/components/AgentConfigForm";
+import { Field } from "@/components/agent-config-primitives";
+import { NativeSelect } from "@/components/ui/select";
 import { queryKeys } from "@/lib/queryKeys";
 import type {
   AiConnectionBinding,
@@ -107,13 +109,19 @@ function Connection() {
 function OpenRouterModelPicker() {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
+  const [effort, setEffort] = useState("");
   const connection = useConnectionModels(companyId, {
     provider: "openrouter", method: "api_key", mode: "shared",
     connectionId: accounts[1].id, grantId: accounts[1].grantId,
   }, "opencode_local");
-  return <ModelDropdown models={connection?.models ?? []} value={value} onChange={setValue}
+  return <div className="grid gap-5 sm:grid-cols-2">
+    <ModelDropdown presentation="native" models={connection?.models ?? []} value={value} onChange={setValue}
     open={open} onOpenChange={setOpen} allowDefault={false} required groupByProvider={false}
-    preserveOrder creatable loadingModels={connection?.isLoading} />;
+    preserveOrder creatable loadingModels={connection?.isLoading} />
+    <Field label="Thinking effort"><NativeSelect aria-label="Thinking effort" value={effort} onChange={event => setEffort(event.target.value)}>
+      <option value="">Auto</option><option value="high">high</option>
+    </NativeSelect></Field>
+  </div>;
 }
 function OpenRouterModels() {
   const [client] = useState(() => {
@@ -192,13 +200,18 @@ export const OpenRouterPopularModels: Story = {
   render: () => <OpenRouterModels />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: "Select model (required)" }));
-    const body = within(canvasElement.ownerDocument.body);
-    const labels = Array.from(canvasElement.ownerDocument.querySelectorAll('span[title^="openrouter/"]')).map(element => element.textContent);
+    const model = canvas.getByRole("combobox", { name: "Model" });
+    const labels = within(model).getAllByRole("option").filter(option => (option as HTMLOptionElement).value.startsWith("openrouter/")).map(option => option.textContent);
     await expect(labels).toEqual(["Z.AI GLM 5", "Claude Sonnet 4.5", "OpenAI GPT-5.4"]);
-    await userEvent.type(body.getByPlaceholderText("Search models... (type to create)"), "claude");
-    await userEvent.click(body.getByRole("button", { name: "Claude Sonnet 4.5" }));
-    await expect(canvas.getByRole("button", { name: "Claude Sonnet 4.5" })).toBeVisible();
+    await userEvent.selectOptions(model, "openrouter/anthropic/claude-sonnet-4.5");
+    await expect(model).toHaveValue("openrouter/anthropic/claude-sonnet-4.5");
+    await userEvent.selectOptions(canvas.getByRole("combobox", { name: "Thinking effort" }), "high");
+    await userEvent.selectOptions(model, within(model).getByRole("option", { name: "Enter custom model…" }));
+    await userEvent.clear(canvas.getByRole("textbox", { name: "Model ID" }));
+    await userEvent.type(canvas.getByRole("textbox", { name: "Model ID" }), "my-gateway/model-alias");
+    await expect(canvas.getByRole("textbox", { name: "Model ID" })).toHaveValue("my-gateway/model-alias");
+    await userEvent.selectOptions(model, "openrouter/anthropic/claude-sonnet-4.5");
+    await expect(canvas.queryByRole("textbox", { name: "Model ID" })).not.toBeInTheDocument();
   },
 };
 export const ChooseProvider: Story = {

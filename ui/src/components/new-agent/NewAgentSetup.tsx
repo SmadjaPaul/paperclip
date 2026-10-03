@@ -54,6 +54,7 @@ import { Field } from "../agent-config-primitives";
 import { SecretPicker } from "../environment-variables-editor/SecretPicker";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { NativeSelect, nativeSelectClassName } from "../ui/select";
 import {
   OnboardingCard,
   OnboardingHeading,
@@ -67,8 +68,7 @@ import {
 } from "./AgentProviderConnection";
 import { adapterCuratesModelOrder } from "../../lib/model-utils";
 
-const controlClass =
-  "w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const controlClass = nativeSelectClassName;
 const blocking = (result: AdapterEnvironmentTestResult) =>
   result.status === "fail" ||
   result.checks.some((check) => check.code === ADAPTER_AUTH_MISSING_CHECK_CODE);
@@ -844,6 +844,7 @@ function Setup({
                           <div className="grid items-start gap-5 sm:grid-cols-2">
                             {showModel && !usingKimiApi && (
                               <ModelDropdown
+                                presentation="native"
                                 models={connectionModels?.models ?? models.data ?? []}
                                 loadingModels={connectionModels?.isLoading ?? models.isLoading}
                                 onRefreshModels={connectionModels?.refreshModels}
@@ -881,9 +882,8 @@ function Setup({
                             )}
                             {efforts.length > 0 && (
                               <Field label="Thinking effort">
-                                <select
+                                <NativeSelect
                                   aria-label="Thinking effort"
-                                  className={controlClass}
                                   value={effort}
                                   onChange={(event) => {
                                     setEffort(event.target.value);
@@ -896,7 +896,7 @@ function Setup({
                                       {value}
                                     </option>
                                   ))}
-                                </select>
+                                </NativeSelect>
                               </Field>
                             )}
                           </div>

@@ -44,7 +44,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { selectTriggerClassName } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, selectTriggerClassName } from "@/components/ui/select";
 import { AdapterMark } from "./AdapterMark";
 import { FolderOpen, Heart, ChevronDown, X, Copy, Check, ExternalLink, Loader2, TriangleAlert, Bug } from "lucide-react";
 import { asBoolean, asFiniteNumber, asObject, cn } from "../lib/utils";
@@ -3755,6 +3756,7 @@ export function ModelDropdown({
   detectModelLabel,
   emptyDetectHint,
   defaultLabel,
+  presentation = "searchable",
 }: {
   models: AdapterModel[];
   value: string;
@@ -3776,8 +3778,10 @@ export function ModelDropdown({
   detectModelLabel?: string;
   emptyDetectHint?: string;
   defaultLabel?: string;
+  presentation?: "searchable" | "native";
 }) {
   const [modelSearch, setModelSearch] = useState("");
+  const [enteringCustomModel, setEnteringCustomModel] = useState(false);
   const [detectingModel, setDetectingModel] = useState(false);
   const selected = models.find((m) => m.id === value);
   const manualModel = modelSearch.trim();
@@ -3844,6 +3848,47 @@ export function ModelDropdown({
     } finally {
       setDetectingModel(false);
     }
+  }
+
+  if (presentation === "native") {
+    const customOption = "__paperclip_custom_model__";
+    const extraModels = [...new Set([value, ...promotedModelIds])].filter(id => id && (!models.some(model => model.id === id) || promotedModelIds.has(id)));
+    return (
+      <Field label="Model" hint={help.model}>
+        <NativeSelect
+          aria-label="Model"
+          aria-busy={loadingModels || refreshingModels}
+          value={enteringCustomModel ? customOption : value}
+          required={required && !enteringCustomModel}
+          onChange={event => {
+            const next = event.target.value;
+            setEnteringCustomModel(next === customOption);
+            if (next !== customOption) onChange(next);
+          }}
+        >
+          <option value="" disabled={!allowDefault}>
+            {allowDefault ? (defaultLabel ?? "Default") : loadingModels ? "Loading models…" : required ? "Select model (required)" : "Select model"}
+          </option>
+          {extraModels.map(id => <option key={id} value={id}>{models.find(model => model.id === id)?.label ?? id}</option>)}
+          {groupedModels.map(({ provider, entries }) => groupByProvider ? (
+            <optgroup key={provider} label={provider}>
+              {entries.map(model => <option key={model.id} value={model.id}>{model.label}</option>)}
+            </optgroup>
+          ) : entries.map(model => <option key={model.id} value={model.id}>{model.label}</option>))}
+          {creatable && <option value={customOption}>Enter custom model…</option>}
+        </NativeSelect>
+        {enteringCustomModel && (
+          <label className="mt-3 block space-y-1 text-xs text-muted-foreground">
+            Model ID
+            <Input aria-label="Model ID" value={value} onChange={event => onChange(event.target.value)}
+              placeholder="Enter model ID or alias" autoFocus required={required} />
+          </label>
+        )}
+        {loadingModels && <p role="status" className="mt-2 text-xs text-muted-foreground">Loading models…</p>}
+        {onRefreshModels && <Button type="button" variant="ghost" size="sm" disabled={refreshingModels}
+          onClick={() => void onRefreshModels()}>{refreshingModels ? "Refreshing…" : "Refresh models"}</Button>}
+      </Field>
+    );
   }
 
   return (
