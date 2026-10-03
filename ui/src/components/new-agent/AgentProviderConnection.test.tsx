@@ -135,7 +135,7 @@ async function mount(
   );
   await vi.waitFor(() => expect(mocks.personal).toHaveBeenCalled());
   await vi.waitFor(() => expect(client.isFetching()).toBe(0));
-  if (savedApiKeys && !managedAccount) await vi.waitFor(() => expect(host.textContent).toContain("2 saved API keys"));
+  if (savedApiKeys && !managedAccount && !advancedConnection) await vi.waitFor(() => expect(host.textContent).toContain("2 saved API keys"));
   return { test, connected, key };
 }
 function click(text: string) {
@@ -151,25 +151,28 @@ function openProvider() {
   );
 }
 describe("AgentProviderConnection reuse", () => {
-  it("switches subscription, API key, and advanced connections in the same place", async () => {
+  it("keeps all three connection tiles visible while switching forms", async () => {
     await mount("codex_local", false, true, true, true, false, undefined, false, "local_trusted", true, {
       content: <div>Advanced connection picker</div>,
     });
-    const modeLabels = () => Array.from(host.querySelectorAll('button[aria-label^="Use "]')).map(button => button.getAttribute("aria-label"));
-    expect(modeLabels()).toEqual(["Use API key instead", "Use advanced connection instead"]);
+    const modeLabels = () => Array.from(host.querySelectorAll('[role="radio"]')).map(button => button.textContent);
+    expect(modeLabels()).toEqual(["OpenAISubscription", "OpenAIAPI key", "Advanced"]);
     expect(host.querySelector('[aria-label="Saved subscription"]')).not.toBeNull();
     expect(host.textContent).not.toContain("Advanced connection picker");
-    click("Use API key instead");
+    expect(host.textContent).not.toContain("instead");
+    click("OpenAIAPI key");
     expect(host.querySelector('[aria-label="Saved API key"]')).not.toBeNull();
+    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("OpenAIAPI key");
     expect(host.querySelector('[aria-label="Saved subscription"]')).toBeNull();
-    expect(modeLabels()).toEqual(["Use subscription instead", "Use advanced connection instead"]);
-    click("Use advanced connection instead");
+    expect(modeLabels()).toEqual(["OpenAISubscription", "OpenAIAPI key", "Advanced"]);
+    click("Advanced");
     expect(host.textContent).toContain("Advanced connection picker");
+    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("Advanced");
     expect(host.querySelector("select")).toBeNull();
-    expect(modeLabels()).toEqual(["Use subscription instead", "Use API key instead"]);
+    expect(modeLabels()).toEqual(["OpenAISubscription", "OpenAIAPI key", "Advanced"]);
     const useConnection = Array.from(host.querySelectorAll("button")).find(button => button.textContent?.includes("Use connection"))!;
     expect(useConnection.disabled).toBe(true);
-    click("Use subscription instead");
+    click("OpenAISubscription");
     expect(host.querySelector('[aria-label="Saved subscription"]')).not.toBeNull();
     expect(host.textContent).not.toContain("Advanced connection picker");
   });
@@ -179,10 +182,28 @@ describe("AgentProviderConnection reuse", () => {
     const { connected, test } = await mount("codex_local", false, true, true, true, false, undefined, false, "local_trusted", true, {
       content: <div>Advanced connection picker</div>, value: binding,
     });
-    click("Use advanced connection instead");
+    click("Advanced");
     click("Use connection");
     expect(connected).toHaveBeenCalledExactlyOnceWith({ env: {}, aiConnection: binding });
     expect(test).not.toHaveBeenCalled();
+  });
+
+  it("preserves the API key when the selected tile is clicked again", async () => {
+    await mount("codex_local", false, true, false, false, false, undefined, false, "local_trusted", true, {
+      content: <div>Advanced connection picker</div>,
+    });
+    click("OpenAIAPI key");
+    const input = host.querySelector<HTMLInputElement>('input[type="password"]')!;
+    flushSync(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "fixture-key");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    click("OpenAIAPI key");
+    expect(input.value).toBe("fixture-key");
+    const apiTile = host.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')!;
+    flushSync(() => apiTile.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("Advanced");
+    expect(host.querySelectorAll('[role="radio"]')).toHaveLength(3);
   });
 
   it("uses the saved subscription after switching back from an advanced connection", async () => {
@@ -190,8 +211,8 @@ describe("AgentProviderConnection reuse", () => {
       content: <div>Advanced connection picker</div>,
       value: { provider: "openrouter", method: "api_key", mode: "shared", connectionId: "router", grantId: "router-grant" },
     });
-    click("Use advanced connection instead");
-    click("Use subscription instead");
+    click("Advanced");
+    click("OpenAISubscription");
     click("Use saved subscription");
     await vi.waitFor(() => expect(connected).toHaveBeenCalled());
     expect(connected.mock.calls[0][0]).toMatchObject({ env: { CODEX_HOME: { type: "secret_ref", secretId: "codex-home" } } });

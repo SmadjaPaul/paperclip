@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 
 import { cn } from "../../lib/utils";
-import type { CredentialMode, ModelConnectionMode } from "./ModelSourceTiles";
+import type { CredentialMode } from "./ModelSourceTiles";
 import { LINK_LABEL_FADE_IN, LINK_LABEL_FADE_OUT } from "./onboarding-motion";
 
 /**
@@ -17,13 +17,11 @@ import { LINK_LABEL_FADE_IN, LINK_LABEL_FADE_OUT } from "./onboarding-motion";
  * holds up because they are right above it.
  */
 
-const LINK_LABEL: Record<ModelConnectionMode, string> = {
+const LINK_LABEL: Record<CredentialMode, string> = {
   subscription: "Use subscription instead",
   api: "Use API key instead",
-  advanced: "Use advanced connection instead",
 };
 const NATIVE_MODES: CredentialMode[] = ["subscription", "api"];
-const CONNECTION_MODES: ModelConnectionMode[] = [...NATIVE_MODES, "advanced"];
 
 const OTHER_MODE: Record<CredentialMode, CredentialMode> = {
   subscription: "api",
@@ -40,22 +38,10 @@ export function CredentialModeLink({
   return <ModeLink destination={OTHER_MODE[mode]} onClick={() => onChange(OTHER_MODE[mode])} modes={NATIVE_MODES} />;
 }
 
-/** Three equivalent routes through the new-agent connection step. */
-export function ConnectionModeLinks({ mode, onChange }: {
-  mode: ModelConnectionMode;
-  onChange: (next: ModelConnectionMode) => void;
-}) {
-  return <div className="flex flex-col items-start">
-    {CONNECTION_MODES.filter(destination => destination !== mode).map(destination => (
-      <ModeLink key={destination} destination={destination} onClick={() => onChange(destination)} modes={CONNECTION_MODES} />
-    ))}
-  </div>;
-}
-
 function ModeLink({ destination, onClick, modes }: {
-  destination: ModelConnectionMode;
+  destination: CredentialMode;
   onClick: () => void;
-  modes: ModelConnectionMode[];
+  modes: CredentialMode[];
 }) {
   return (
     <button

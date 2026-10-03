@@ -20,7 +20,7 @@ import {
   OnboardingLoginCard,
 } from "../AdapterLoginChrome";
 import { ModelSourceTiles, type ModelConnectionMode } from "../onboarding/ModelSourceTiles";
-import { CredentialModeLink, ConnectionModeLinks } from "../onboarding/CredentialModeLink";
+import { CredentialModeLink } from "../onboarding/CredentialModeLink";
 import { FooterNav } from "../onboarding/FooterNav";
 import { MAKE_ROOM, CARD_ENTER } from "../onboarding/onboarding-motion";
 import { buildFixedClaudeOAuthBinding } from "../environment-variables-editor/model";
@@ -85,7 +85,7 @@ export function AgentProviderConnection({
   };
   const [methodChoice, setMethod] = useState<"subscription" | "api" | null>(managedAccount?.initialMethod === "api_key" ? "api" : managedAccount ? "subscription" : null);
   const [advanced, setAdvanced] = useState(false);
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState(Boolean(advancedConnection));
   const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null);
   const [loginPhase, setLoginPhase] = useState<"preparing" | "ready" | "waiting" | "connecting">("preparing");
   const phaseBeforeSubmit = useRef<"ready" | "waiting">("ready");
@@ -234,6 +234,7 @@ export function AgentProviderConnection({
     !storedLogin.data &&
     (Boolean(managedAccount) || auth.data?.status !== "present" || subscriptionId === "");
   const switchMode = (next: ModelConnectionMode) => {
+    if (advancedConnection && next === (advanced ? "advanced" : method)) return;
     cancel();
     setAdvanced(next === "advanced");
     setOpened(advancedConnection ? true : opened);
@@ -246,24 +247,30 @@ export function AgentProviderConnection({
   return (
     <div className="min-w-0 max-w-full">
       <ModelSourceTiles
-        label="Connect your model provider"
-        sources={[
+        label={advancedConnection ? "Connection type" : "Connect your model provider"}
+        sources={advancedConnection ? [
+          { id: "subscription", label: provider, icon: <AdapterMark type={adapterType} />, credentialMode: "subscription" },
+          { id: "api", label: provider, icon: <AdapterMark type={adapterType} />, credentialMode: "api" },
+          { id: "advanced", label: "Advanced", icon: <Cable className="size-6" />, credentialMode: null },
+        ] : [
           {
             id: adapterType,
-            label: advanced ? "Advanced connection" : provider,
-            icon: advanced ? <Cable className="size-6" /> : <AdapterMark type={adapterType} />,
+            label: provider,
+            icon: <AdapterMark type={adapterType} />,
           },
         ]}
         mode={advanced ? "advanced" : method}
-        selectedId={opened ? adapterType : null}
-        collapsed={opened}
-        onSelect={() => { if (!advanced && !managedAccount?.disabled) setOpened(true); }}
+        selectedId={advancedConnection ? (advanced ? "advanced" : method) : opened ? adapterType : null}
+        collapsed={!advancedConnection && opened}
+        onSelect={id => {
+          if (managedAccount?.disabled) return;
+          if (advancedConnection) switchMode(id as ModelConnectionMode);
+          else setOpened(true);
+        }}
       />
-      {(!opened || managedAccount || advancedConnection) && !managedAccount?.fixedMethod && (
+      {!advancedConnection && (!opened || managedAccount) && !managedAccount?.fixedMethod && (
         <div className="-ml-3 mt-1">
-          {advancedConnection
-            ? <ConnectionModeLinks mode={advanced ? "advanced" : method} onChange={switchMode} />
-            : <CredentialModeLink mode={method} onChange={switchMode} />}
+          <CredentialModeLink mode={method} onChange={switchMode} />
         </div>
       )}
       {advanced && advancedConnection ? <>
@@ -285,15 +292,17 @@ export function AgentProviderConnection({
       )}
       {method === "subscription" &&
         savedKeys.subscriptions.length > 0 && (
-          <SavedProviderKeySelect
-            options={savedKeys.subscriptions}
-            value={savedSubscription?.id ?? ""}
-            onChange={setSubscriptionId}
-            loading={false}
-            error={false}
-            kind="subscription"
-            disabled={busy}
-          />
+          <div className={advancedConnection ? "pt-5" : undefined}>
+            <SavedProviderKeySelect
+              options={savedKeys.subscriptions}
+              value={savedSubscription?.id ?? ""}
+              onChange={setSubscriptionId}
+              loading={false}
+              error={false}
+              kind="subscription"
+              disabled={busy}
+            />
+          </div>
         )}
       <motion.div
         initial={false}
@@ -411,7 +420,7 @@ export function AgentProviderConnection({
       )}
       <FooterNav
         onBack={() => {
-          if (opened) cancel();
+          if (opened && !advancedConnection) cancel();
           else onBack();
         }}
         primaryLabel={

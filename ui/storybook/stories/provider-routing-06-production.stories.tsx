@@ -175,21 +175,27 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const NewAgentConnectionModes: Story = {
   name: "New agent connection modes",
-  parameters: { docs: { description: { story: "Agents → New agent → Connect. The production connection step switches between saved subscriptions, API keys, and advanced connections. Environment selection belongs to Configure." } } },
+  parameters: { docs: { description: { story: "Agents → New agent → Connect. Three persistent production tiles switch between saved subscriptions, API keys, and advanced connections. Environment selection belongs to Configure." } } },
   render: () => <AgentConnectionModes />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await expect(canvas.getAllByRole("radio")).toHaveLength(3);
+    await expect(canvas.getByRole("radio", { name: "OpenAI Subscription" })).toBeChecked();
     await expect(canvas.getByRole("combobox", { name: "Saved subscription" })).toBeVisible();
-    await userEvent.click(canvas.getByRole("button", { name: "Use API key instead" }));
+    await userEvent.click(canvas.getByRole("radio", { name: "OpenAI API key" }));
     await waitFor(() => expect(canvas.getByPlaceholderText("Enter API key here")).toBeVisible());
-    await userEvent.click(canvas.getByRole("button", { name: "Use advanced connection instead" }));
+    await userEvent.click(canvas.getByRole("radio", { name: "Advanced" }));
     await expect(canvas.queryByPlaceholderText("Enter API key here")).not.toBeInTheDocument();
+    await expect(canvas.getAllByRole("radio")).toHaveLength(3);
+    await expect(canvas.getByRole("radio", { name: "Advanced" })).toBeChecked();
     await expect(canvas.getByRole("button", { name: "Use connection" })).toBeDisabled();
     await userEvent.click(canvas.getByRole("combobox", { name: "Connection" }));
     await userEvent.click(within(canvasElement.ownerDocument.body).getByRole("option", { name: "Company OpenRouter" }));
     await userEvent.click(canvas.getByRole("button", { name: "Use connection" }));
     await expect(canvas.getByRole("status")).toHaveTextContent("Continue to Configure with openrouter.");
-    await userEvent.click(canvas.getByRole("button", { name: "Use subscription instead" }));
+    await userEvent.click(canvas.getByRole("radio", { name: "OpenAI Subscription" }));
+    await expect(canvas.getAllByRole("radio")).toHaveLength(3);
+    await expect(canvas.getByRole("radio", { name: "OpenAI Subscription" })).toBeChecked();
     await expect(canvas.getByRole("combobox", { name: "Saved subscription" })).toBeVisible();
     await expect(canvas.queryByRole("combobox", { name: "Connection" })).not.toBeInTheDocument();
   },

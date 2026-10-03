@@ -28,11 +28,13 @@ export type ModelSource = {
   label: string;
   /** The brand mark, rendered into a 30px square. */
   icon: ReactNode;
+  /** Override the row's credential mode; null leaves the tag slot empty. */
+  credentialMode?: ModelConnectionMode | null;
 };
 
 const CREDENTIAL_TAG_LABEL: Record<ModelConnectionMode, string> = {
   subscription: "Subscription",
-  api: "API",
+  api: "API key",
   advanced: "Advanced",
 };
 
@@ -72,7 +74,7 @@ function ModelSourceTile({
   settling,
 }: {
   source: ModelSource;
-  mode: ModelConnectionMode;
+  mode: ModelConnectionMode | null;
   selected: boolean;
   onSelect: () => void;
   buttonRef: (node: HTMLButtonElement | null) => void;
@@ -125,7 +127,7 @@ function ModelSourceTile({
       <span className="text-(length:--text-compact) font-medium text-foreground">
         {source.label}
       </span>
-      <CredentialTag mode={mode} />
+      {mode ? <CredentialTag mode={mode} /> : <span aria-hidden className="h-4" />}
     </button>
   );
 }
@@ -222,7 +224,7 @@ export function ModelSourceTiles({
           >
             <ModelSourceTile
               source={source}
-              mode={mode}
+              mode={source.credentialMode === undefined ? mode : source.credentialMode}
               selected={source.id === selectedId}
               onSelect={() => onSelect(source.id)}
               settling={settling}
