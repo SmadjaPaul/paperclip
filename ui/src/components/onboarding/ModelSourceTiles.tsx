@@ -35,7 +35,7 @@ export type ModelSource = {
 const CREDENTIAL_TAG_LABEL: Record<ModelConnectionMode, string> = {
   subscription: "Subscription",
   api: "API key",
-  advanced: "Advanced",
+  advanced: "Custom Gateway",
 };
 
 /**

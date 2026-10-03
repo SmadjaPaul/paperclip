@@ -251,7 +251,7 @@ export function AgentProviderConnection({
         sources={advancedConnection ? [
           { id: "subscription", label: provider, icon: <AdapterMark type={adapterType} />, credentialMode: "subscription" },
           { id: "api", label: provider, icon: <AdapterMark type={adapterType} />, credentialMode: "api" },
-          { id: "advanced", label: "Advanced", icon: <Cable className="size-6" />, credentialMode: null },
+          { id: "advanced", label: "Advanced", icon: <Cable className="size-6 text-muted-foreground" />, credentialMode: "advanced" },
         ] : [
           {
             id: adapterType,

@@ -156,7 +156,7 @@ describe("AgentProviderConnection reuse", () => {
       content: <div>Advanced connection picker</div>,
     });
     const modeLabels = () => Array.from(host.querySelectorAll('[role="radio"]')).map(button => button.textContent);
-    expect(modeLabels()).toEqual(["OpenAISubscription", "OpenAIAPI key", "Advanced"]);
+    expect(modeLabels()).toEqual(["OpenAISubscription", "OpenAIAPI key", "AdvancedCustom Gateway"]);
     expect(host.querySelector('[aria-label="Saved subscription"]')).not.toBeNull();
     expect(host.textContent).not.toContain("Advanced connection picker");
     expect(host.textContent).not.toContain("instead");
@@ -164,12 +164,12 @@ describe("AgentProviderConnection reuse", () => {
     expect(host.querySelector('[aria-label="Saved API key"]')).not.toBeNull();
     expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("OpenAIAPI key");
     expect(host.querySelector('[aria-label="Saved subscription"]')).toBeNull();
-    expect(modeLabels()).toEqual(["OpenAISubscription", "OpenAIAPI key", "Advanced"]);
+    expect(modeLabels()).toEqual(["OpenAISubscription", "OpenAIAPI key", "AdvancedCustom Gateway"]);
     click("Advanced");
     expect(host.textContent).toContain("Advanced connection picker");
-    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("Advanced");
+    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("AdvancedCustom Gateway");
     expect(host.querySelector("select")).toBeNull();
-    expect(modeLabels()).toEqual(["OpenAISubscription", "OpenAIAPI key", "Advanced"]);
+    expect(modeLabels()).toEqual(["OpenAISubscription", "OpenAIAPI key", "AdvancedCustom Gateway"]);
     const useConnection = Array.from(host.querySelectorAll("button")).find(button => button.textContent?.includes("Use connection"))!;
     expect(useConnection.disabled).toBe(true);
     click("OpenAISubscription");
@@ -202,7 +202,7 @@ describe("AgentProviderConnection reuse", () => {
     expect(input.value).toBe("fixture-key");
     const apiTile = host.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')!;
     flushSync(() => apiTile.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
-    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("Advanced");
+    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("AdvancedCustom Gateway");
     expect(host.querySelectorAll('[role="radio"]')).toHaveLength(3);
   });
 
