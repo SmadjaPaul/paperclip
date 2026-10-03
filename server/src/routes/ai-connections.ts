@@ -1,5 +1,4 @@
 import { supportsLocalAiLogin } from "../services/local-ai-login-policy.js";
-import { readVerifiedLocalAiCredential } from "../services/local-ai-credentials.js";
 import { localAiLoginService } from "../services/local-ai-login.js";
 import { z } from "zod";
 import { Router, type Request } from "express";
@@ -17,6 +16,7 @@ import {
   aiConnectionLoginIntentSchema,
   localAiConnectionSchema,
   localAiLoginStartSchema,
+  browserCodeSchema,
   isAiConnectionCompatible,
   type AiConnectionLoginIntent,
   type AiProvider,
@@ -174,12 +174,6 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
   const router = Router();
   const service = aiConnectionService(db);
   const localLogin = localAiLoginService(db);
-  function assertLocalOperator(req: Request) {
-    assertBoard(req);
-    assertCompanyAccess(req, req.params.companyId as string);
-    if (req.actor.source !== "local_implicit")
-      throw forbidden("Only the local operator can connect this machine's CLI account.");
-  }
   router.post("/companies/:companyId/ai-connections/local/attempts", validate(localAiLoginStartSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     const { restart, ...intent } = localAiLoginStartSchema.parse(req.body);
@@ -192,9 +186,6 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
     const companyId = req.params.companyId as string;
     const { localSessionId, ...intent } = localAiConnectionSchema.parse(req.body);
     assertLocalLoginAvailable();
-    // Only implicit local operators may inspect ambient Claude credentials.
-    // Authenticated users sign in to their own company/user-scoped attempt.
-    if (intent.provider === "anthropic" && !localSessionId) assertLocalOperator(req);
     const userId = await assertAiConnectionCreateAccess(db, req, companyId, intent);
     res.setHeader("Cache-Control", "no-store");
     res.json(await localLogin.check(companyId, userId, intent, localSessionId));
@@ -204,6 +195,16 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
     assertCompanyAccess(req, req.params.companyId as string);
     const id = z.string().uuid().parse(req.params.sessionId);
     await localLogin.cancel(req.params.companyId as string, getActorInfo(req).actorId, id);
+    res.json({ ok: true });
+  });
+  router.post("/companies/:companyId/ai-connections/local/attempts/:sessionId/code", validate(z.object({ browserCode: browserCodeSchema })), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertLocalLoginAvailable();
+    assertBoard(req);
+    assertCompanyAccess(req, companyId);
+    const id = z.string().uuid().parse(req.params.sessionId);
+    await localLogin.submitCode(companyId, getActorInfo(req).actorId, id, browserCodeSchema.parse(req.body.browserCode));
+    res.setHeader("Cache-Control", "no-store");
     res.json({ ok: true });
   });
   router.get("/companies/:companyId/ai-connections", async (req, res) => {
@@ -317,16 +318,11 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
       const companyId = req.params.companyId as string;
       const { localSessionId, ...input } = localAiConnectionSchema.parse(req.body);
       assertLocalLoginAvailable();
-      if (input.provider === "anthropic" && !localSessionId) assertLocalOperator(req);
       const userId = await assertAiConnectionCreateAccess(db, req, companyId, input);
-      if (localSessionId || input.provider === "openai" || input.provider === "xai") {
-        if (!localSessionId) throw unprocessable("Start a separate local sign-in for this connection before connecting.");
-        res.status(201).json(await localLogin.complete(companyId, userId, localSessionId, input));
-        return;
-      }
-      const attemptStartedAt = new Date();
-      const credential = await readVerifiedLocalAiCredential(input.provider);
-      res.status(201).json(await service.save(companyId, userId, input, credential, undefined, attemptStartedAt));
+      if (!localSessionId) throw unprocessable(input.provider === "xai"
+        ? "Start local sign-in for this connection before connecting."
+        : "Start browser sign-in for this connection before connecting.");
+      res.status(201).json(await localLogin.complete(companyId, userId, localSessionId, input));
     },
   );
   router.put(

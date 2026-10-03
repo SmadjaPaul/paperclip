@@ -141,7 +141,7 @@ export function AgentProviderConnection({
     provider: aiProvider, method: "subscription", name: `My ${provider} subscription`,
     ownership: "personal", agentIds: [], allAgents: true,
   }, !advanced && canUseLocalLogin && method === "subscription" && !savedSubscription && !storedLogin.data,
-  { allowHostClaude: health.data?.deploymentMode === "local_trusted" });
+  );
   const auth = useQuery({
     queryKey: queryKeys.agents.authSignal(
       companyId,
@@ -441,6 +441,7 @@ export function AgentProviderConnection({
           managedAccount?.disabled ||
           (Boolean(managedAccount) && method === "subscription" && !canLogin && !canUseLocalLogin) ||
           (localEnvironment && health.isPending) || localLogin.preparing || Boolean(localLogin.error) ||
+          (method === "subscription" && canUseLocalLogin && !savedSubscription && !storedLogin.data && localLogin.status !== "ready") ||
           (!managedAccount && auth.isPending) ||
           savedKeys.loading ||
           (adapterType === "claude_local" && storedLogin.isPending) ||

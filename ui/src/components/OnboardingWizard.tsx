@@ -1022,7 +1022,7 @@ function OnboardingWizardInner({
     ownership: "personal", agentIds: [], allAgents: true,
   }, effectiveOnboardingOpen && step === 4 && canUseLocalLogin && credentialMode !== "api" &&
     Boolean(managedProvider) && !savedSubscription && !savedKeys.storedLogin.data && !managedBindingForStep(),
-  { allowHostClaude: localLoginHealth.data?.deploymentMode === "local_trusted" });
+  );
   // A result from a previous selection must not hire or advance this wizard.
   // Environment query updates are not user navigation: the test resolves its
   // own environment, and those updates must not interrupt the pending attempt.
@@ -2991,8 +2991,11 @@ function OnboardingWizardInner({
                             Prompt:{" "}
                             <span className="font-mono">Respond with hello.</span>
                           </p>
-                          {adapterType === "cursor" ||
-                          adapterType === "codex_local" ||
+                          {adapterType === "claude_local" || adapterType === "codex_local" ? (
+                            <p className="text-muted-foreground">
+                              If authentication fails, connect your subscription in the browser above or use an API key.
+                            </p>
+                          ) : adapterType === "cursor" ||
                           adapterType === "gemini_local" ||
                           adapterType === "kimi_local" ||
                           adapterType === "opencode_local" ? (
@@ -3011,9 +3014,7 @@ function OnboardingWizardInner({
                               <span className="font-mono">
                                 {adapterType === "cursor"
                                   ? "agent login"
-                                  : adapterType === "codex_local"
-                                    ? "codex login"
-                                    : adapterType === "gemini_local"
+                                  : adapterType === "gemini_local"
                                       ? "gemini auth"
                                       : adapterType === "kimi_local"
                                         ? "kimi login"
@@ -3022,11 +3023,7 @@ function OnboardingWizardInner({
                               .
                             </p>
                           ) : (
-                            <p className="text-muted-foreground">
-                              If login is required, run{" "}
-                              <span className="font-mono">claude login</span>{" "}
-                              and retry.
-                            </p>
+                            <p className="text-muted-foreground">If login is required, connect the provider above and retry.</p>
                           )}
                         </div>
                       )}

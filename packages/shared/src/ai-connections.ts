@@ -236,10 +236,14 @@ export const localAiConnectionSchema = aiConnectionLoginIntentSchema.extend({
 export const localAiLoginStartSchema = aiConnectionLoginIntentSchema.extend({ restart: z.boolean().optional() });
 export interface LocalAiLoginStatus {
   status: "ready" | "sign_in_required" | "expired";
+  authorizationUrl?: string;
+  code?: string;
+  error?: string;
 }
 export interface LocalAiLoginAttempt {
   sessionId: string;
-  command: string;
+  /** Grok still uses terminal sign-in until it has an in-app login runner. */
+  command?: string;
   expiresAt: string;
 }
 

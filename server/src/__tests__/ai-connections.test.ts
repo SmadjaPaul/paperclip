@@ -4,7 +4,7 @@ import { issueRecoveryActionService } from "../services/issue-recovery-actions.j
 import * as localCredentials from "../services/local-ai-credentials.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, access, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdtemp, realpath, rm, access, readFile, writeFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";
@@ -21,6 +21,9 @@ import express from "express";
 import request from "supertest";
 import { aiConnectionRoutes, canInstallSharedAiConnectionForNewAgent, responsibleUserForAiRequest } from "../routes/ai-connections.js";
 import { validateAiApiKey } from "../routes/ai-connections.js";
+vi.mock("../services/local-ai-browser-login.js", () => ({
+  startLocalBrowserLogin: () => ({ authorizationUrl: "https://auth.openai.com/codex/device", code: "ABCD-EFGHJ", abort: () => {} }),
+}));
 
 let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
 let db: ReturnType<typeof createDb>;
@@ -34,7 +37,7 @@ const input = { companyId, agentId, adapterType: "claude_local", binding };
 const create = (userId: string, name: string, ownership: "personal" | "shared" = "personal") => service.save(companyId, userId, { provider: "anthropic", method: "api_key", ownership, name, apiKey: "fixture", agentIds: [], allAgents: true }, `fixture-${name}`);
 
 beforeAll(async () => {
-  home = await mkdtemp(path.join(os.tmpdir(), "paperclip-ai-tests-"));
+  home = await realpath(await mkdtemp(path.join(os.tmpdir(), "paperclip-ai-tests-")));
   vi.stubEnv("PAPERCLIP_HOME", home);
   vi.stubEnv("PAPERCLIP_INSTANCE_ID", "ai-connection-fixture");
   database = await startEmbeddedPostgresTestDatabase("paperclip-ai-db-");
@@ -768,7 +771,7 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
       expect(network).not.toHaveBeenCalled();
     } finally { network.mockRestore(); }
   });
-  it("imports only for the local operator and preserves identity and permissions on reconnect", async () => {
+  it("requires an owned browser sign-in attempt for local subscriptions", async () => {
     const reader = vi.spyOn(localCredentials, "readVerifiedLocalAiCredential").mockResolvedValue("fixture-local-token");
     const app = express();
     app.use(express.json());
@@ -786,30 +789,18 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
       expect((await request(app).post(`${url}/check`).send(payload)).status).toBe(403);
       expect(reader).not.toHaveBeenCalled();
       const checked = await request(app).post(`${url}/check`).set("x-local", "yes").send(payload);
-      expect(checked.status).toBe(200);
-      expect(checked.body).toEqual({ status: "ready" });
+      expect(checked.status).toBe(422);
       expect((await service.list(companyId, "alice")).some(c => c.name === payload.name)).toBe(false);
       const connected = await request(app).post(url).set("x-local", "yes").send(payload);
-      expect(connected.status).toBe(201);
-      expect(JSON.stringify(connected.body)).not.toContain("fixture-local-token");
-      const before = await db.select().from(toolConnectionInstalls).where(eq(toolConnectionInstalls.connectionId, connected.body.connectionId));
-      expect(before.map(i => [i.targetType, i.targetId])).toEqual([["agent", agentId]]);
-      const reconnected = await request(app).post(url).set("x-local", "yes").send({ ...payload, connectionId: connected.body.connectionId, allAgents: true });
-      expect(reconnected.status).toBe(201);
-      expect(reconnected.body).toEqual(connected.body);
-      const after = await db.select().from(toolConnectionInstalls).where(eq(toolConnectionInstalls.connectionId, connected.body.connectionId));
-      expect(after).toEqual(before);
-      reader.mockRejectedValueOnce(Object.assign(new Error("Sign in locally and retry"), { status: 422 }));
-      const failed = await request(app).post(url).set("x-local", "yes").send({ ...payload, name: "Unsuccessful local login" });
-      expect(failed.status).toBe(422);
-      expect((await service.list(companyId, "alice")).some(c => c.name === "Unsuccessful local login")).toBe(false);
+      expect(connected.status).toBe(422);
+      expect(reader).not.toHaveBeenCalled();
       const codex = { ...payload, provider: "openai", name: "Isolated terminal login" };
       const attempts = `${url}/attempts`;
       expect((await request(app).post(attempts).send(codex)).status).toBe(403); // This member cannot authorize agentId.
       expect((await request(app).post(url).set("x-local", "yes").send(codex)).status).toBe(422);
       const prepared = await request(app).post(attempts).set("x-local", "yes").send(codex);
       expect(prepared.status).toBe(201);
-      expect(prepared.body.command).toMatch(/^\(export CODEX_HOME=.* && mkdir -p .* && codex -c .* login --device-auth\)$/);
+      expect(prepared.body.command).toBeUndefined();
       expect((await request(app).post(attempts).set("x-local", "yes").send(codex)).body).toEqual(prepared.body);
       expect((await request(app).delete(`${attempts}/${prepared.body.sessionId}`).set("x-test-user", "bob").send()).status).toBe(404);
       expect((await request(app).delete(`${attempts}/${prepared.body.sessionId}`).set("x-local", "yes").send()).status).toBe(200);
@@ -856,12 +847,17 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
       const started = await request(app).post(`${base}/attempts`).send(intent);
       expect(started.status).toBe(201);
       expect(started.headers["cache-control"]).toBe("no-store");
-      expect(started.body.command).toContain(provider === "anthropic" ? "CLAUDE_CONFIG_DIR=" : "login --device-auth");
+      expect(started.body.command).toBeUndefined();
       expect((await request(app).post(`${base}/attempts`).send(intent)).body).toEqual(started.body);
       const input = { ...intent, localSessionId: started.body.sessionId };
       for (const endpoint of [base, `${base}/check`]) {
         expect((await request(app).post(endpoint).set("x-test-user", "bob").send(input)).status).toBe(404);
         expect((await request(app).post(endpoint.replace(companyId, otherCompanyId)).send(input)).status).toBe(403);
+      }
+      if (provider === "anthropic") {
+        const codeUrl = `${base}/attempts/${started.body.sessionId}/code`;
+        expect((await request(app).post(codeUrl).set("x-test-user", "bob").send({ browserCode: "fixture-code" })).status).toBe(404);
+        expect((await request(app).post(codeUrl).send({ browserCode: "fixture-code" })).status).toBe(422);
       }
       expect(reader).not.toHaveBeenCalled();
       const checked = await request(app).post(`${base}/check`).send(input);
