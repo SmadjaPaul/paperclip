@@ -35,7 +35,7 @@
     {
       "slug": "bedrock",
       "provider": "Amazon Bedrock",
-      "catalogVisible": false,
+      "catalogVisible": true,
       "localAsset": "/brands/apps/bedrock.svg"
     },
     {
@@ -163,7 +163,7 @@
     {
       "slug": "google",
       "provider": "Google",
-      "catalogVisible": false,
+      "catalogVisible": true,
       "localAsset": "/brands/apps/google.svg"
     },
     {
@@ -548,6 +548,30 @@
       "localAsset": "/brands/apps/browser-use.svg",
       "sourceUrl": "https://browser-use.com/logo-primary.svg",
       "retrievedAt": "2026-09-29"
+    },
+    {
+      "slug": "chat-completions-api",
+      "provider": "Chat Completions API",
+      "catalogVisible": true,
+      "localAsset": "/brands/apps/api-key-generic.svg"
+    },
+    {
+      "slug": "local",
+      "provider": "Local endpoint",
+      "catalogVisible": true,
+      "localAsset": "/brands/apps/api-key-generic.svg"
+    },
+    {
+      "slug": "messages-api",
+      "provider": "Messages API",
+      "catalogVisible": true,
+      "localAsset": "/brands/apps/api-key-generic.svg"
+    },
+    {
+      "slug": "responses-api",
+      "provider": "Responses API",
+      "catalogVisible": true,
+      "localAsset": "/brands/apps/api-key-generic.svg"
     }
   ]
 }

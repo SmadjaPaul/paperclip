@@ -1,48 +1,26 @@
 {
   "schemaVersion": 1,
-  "slug": "openai",
-  "name": "OpenAI",
-  "description": "Connect OpenAI accounts for your agents.",
+  "slug": "google",
+  "name": "Google Gemini",
+  "description": "Connect Google Gemini accounts for your agents.",
   "categories": [
     "ai"
   ],
   "branding": {
-    "logoUrl": "/brands/apps/openai.svg",
-    "darkLogoUrl": "/brands/apps/openai-dark.svg"
+    "logoUrl": "/brands/apps/google.svg"
   },
   "urlPatterns": [
-    "https://api.openai.com/*"
+    "https://generativelanguage.googleapis.com/*"
   ],
   "methods": [
     {
-      "key": "ai-subscription",
-      "label": "OpenAI subscription",
-      "purpose": "ai",
-      "transport": "runtime_auth",
-      "auth": "oauth",
-      "ai": {
-        "provider": "openai",
-        "method": "subscription"
-      },
-      "grantKinds": [
-        "user",
-        "organization"
-      ],
-      "ownershipModes": [
-        "customer"
-      ],
-      "whenToUse": "Authenticate an agent with this account.",
-      "guidanceMd": "Use your personal account or an explicitly shared company account.",
-      "riskTier": "S3"
-    },
-    {
       "key": "ai-api_key",
-      "label": "OpenAI API key",
+      "label": "Google Gemini API key",
       "purpose": "ai",
       "transport": "runtime_auth",
       "auth": "api_key",
       "ai": {
-        "provider": "openai",
+        "provider": "google",
         "method": "api_key"
       },
       "grantKinds": [
@@ -67,7 +45,7 @@
       ],
       "keyPlacement": {
         "location": "env",
-        "name": "OPENAI_API_KEY"
+        "name": "GEMINI_API_KEY"
       }
     }
   ],

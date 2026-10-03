@@ -220,7 +220,7 @@ function Setup({
   const models = useQuery({
     queryKey: queryKeys.agents.adapterModels(companyId, brandType, null, aiBinding?.provider),
     queryFn: () => agentsApi.adapterModels(companyId, brandType, { provider: aiBinding?.provider }),
-    enabled: Boolean(brandType) && showModel,
+    enabled: Boolean(brandType) && showModel && !connectionModels,
     retry: false,
   });
   const companySecrets = useQuery({
@@ -721,26 +721,6 @@ function Setup({
                         center
                       />
                     </div>
-                    <div className="mb-5">
-                      <Field label="Environment">
-                        <select
-                          aria-label="Environment"
-                          className={controlClass}
-                          value={environmentOverride}
-                          disabled={busy || forced.forced}
-                          onChange={(event) => {
-                            setEnvironmentOverride(event.target.value);
-                            setConnection(null);
-                            resetTest();
-                          }}
-                        >
-                          <option value="">Default: {environmentLabel}</option>
-                          {(envs.data ?? []).filter((env) => env.status === "active" && (!managedOnly || env.driver !== "local")).map((env) => (
-                            <option key={env.id} value={env.id}>{environmentDisplayLabel(env)}</option>
-                          ))}
-                        </select>
-                      </Field>
-                    </div>
                     <details className="mb-5">
                       <summary className="cursor-pointer text-sm text-muted-foreground">Use another connection</summary>
                       <div className="pt-4"><AiConnectionField companyId={companyId} agentName={name} adapterType={brandType} model={model} environmentId={environmentId ?? undefined} value={aiBinding} onChange={binding => { setConnection({ env: {}, aiConnection: binding }); setRuntimeAiBinding(undefined); resetTest(); setScreen("runtime"); }} /></div>
@@ -843,13 +823,16 @@ function Setup({
                           <AiConnectionField companyId={companyId} agentName={name} adapterType={brandType} model={model} environmentId={environmentId ?? undefined} value={aiBinding}
                             onChange={binding => { setRuntimeAiBinding(binding); resetTest(); }} />
                         )}
-                        {models.error && <p role="alert" className="text-sm text-destructive">Could not load models. Retry or enter a model ID manually.</p>}
+                        {(connectionModels ? connectionModels.error : models.error) && <p role="alert" className="text-sm text-destructive">Could not load models. Retry or enter a model ID manually.</p>}
                         {((showModel && !usingKimiApi) ||
                           efforts.length > 0) && (
                           <div className="grid items-start gap-5 sm:grid-cols-2">
                             {showModel && !usingKimiApi && (
                               <ModelDropdown
                                 models={connectionModels?.models ?? models.data ?? []}
+                                loadingModels={connectionModels?.isLoading ?? models.isLoading}
+                                onRefreshModels={connectionModels?.refreshModels}
+                                refreshingModels={connectionModels?.refreshing}
                                 value={model}
                                 onChange={(value) => {
                                   setModel(connectionModels?.resolveModel(value) ?? value);
@@ -877,8 +860,8 @@ function Setup({
                                 allowDefault={!multiProvider}
                                 required={multiProvider}
                                 creatable
-                                groupByProvider={multiProvider}
-                                preserveOrder={adapterCuratesModelOrder(brandType)}
+                                groupByProvider={multiProvider && !connectionModels}
+                                preserveOrder={Boolean(connectionModels) || adapterCuratesModelOrder(brandType)}
                               />
                             )}
                             {efforts.length > 0 && (
@@ -906,12 +889,6 @@ function Setup({
                         {!aiBinding && SETUP_LOGIN_HINTS[adapterType] && (
                           <p className="text-sm text-muted-foreground">
                             {SETUP_LOGIN_HINTS[adapterType]}
-                          </p>
-                        )}
-                        {showModel && models.error && (
-                          <p className="text-xs text-muted-foreground">
-                            Couldn’t load models. You can enter a model ID
-                            manually.
                           </p>
                         )}
                         {hasCredentialField && !aiBinding && (

@@ -518,12 +518,17 @@ fingerprint. These checks do not relax current connection authorization.
 
 ## Advanced provider routing (2026-10-02)
 
-Use **Connectors → Connect a model provider → Advanced providers** to add an
-OpenRouter, Bedrock, custom gateway (including Emissary), or local connection.
+Use the regular rows on **Connectors** to add OpenRouter, Amazon Bedrock,
+Google Gemini, a Responses API, Messages API, Chat Completions API, or local
+endpoint connection. Each row has its own Connect action and saved accounts.
+The catalog tags these entries `model-provider`; no category UI is shown.
+Responses-compatible gateways such as Emissary use the Responses API row.
 The native subscription/API-key onboarding remains the default. Provider choices
 show the existing local brand artwork and reuse the existing access step. Custom
-URLs, protocol, AWS region, and credential fields appear only after choosing an
-advanced provider. New-agent setup also offers the connection picker under
+URLs, protocol, AWS region, and credential fields appear only after choosing the
+corresponding connector. New connections default to everyone in the organization
+and all agents when the actor has permission; the existing Advanced disclosure
+contains the controls to narrow access, without a separate Access step. New-agent setup also offers the connection picker under
 **Use another connection**.
 
 At **Agents → [agent] → Harness / Runtime**, **Connection** is a dropdown of
@@ -548,7 +553,14 @@ OpenClaw Gateway, Hermes Gateway, Claude Managed, AWS AgentCore, Process, HTTP,
 and legacy `acpx_local` are excluded: external agents retain their own model
 configuration, and `acpx_local` is retired. Cursor/Pi/Copilot custom routing,
 Vertex, ambient AWS identity, arbitrary authentication headers, and automatic
-provider catalog discovery are not part of this implementation.
+catalog discovery for custom gateways are not part of this implementation.
+
+OpenRouter connections without an explicit model list automatically load its public
+[model catalog](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties),
+ordered with `sort=most-popular`. New-agent setup and agent settings share this
+discovery path, preserve the provider's ordering, and adapt model IDs to the selected
+harness. Explicit connection model lists take precedence. Catalog discovery sends
+no credentials; a failed request offers refresh and manual model entry.
 
 `config.ai.routing` stores only kind, protocol, URL, auth method, region, and
 optional model IDs/labels. The vault stores provider API keys, including Bedrock API keys.

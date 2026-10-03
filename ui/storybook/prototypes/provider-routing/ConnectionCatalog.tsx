@@ -1,8 +1,12 @@
 import { useState, type ComponentProps } from "react";
 import {
   getAppStoreDefinition,
+  APP_STORE_DEFINITIONS,
+  aiProviderSetupPreset,
   type ToolConnection,
 } from "@paperclipai/shared";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AiProviderSetup } from "@/components/ai-connections/AiProviderSetup";
 import { appDefinitionLogoUrl } from "@/pages/apps/app-definition-display";
 import { ConnectorCard } from "@/pages/apps/Browse";
 import { Input } from "@/components/ui/input";
@@ -193,4 +197,33 @@ export function ConnectionCatalog({
       </Dialog>
     </div>
   );
+}
+
+/** Regular catalog rows and direct setup, using the production components. */
+export function ProviderCatalogReview() {
+  const [source, setSource] = useState<string>();
+  const [query, setQuery] = useState("");
+  const [client] = useState(() => {
+    const value = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    value.setQueryData(["ai-connections", "company-storybook", undefined], { canManageConnections: true, connections: [] });
+    value.setQueryData(["agents", "company-storybook", "provider-access"], [{ id: "nova", name: "Nova" }]);
+    return value;
+  });
+  const preset = source ? aiProviderSetupPreset(source) : undefined;
+  if (source) return <QueryClientProvider client={client}><AiProviderSetup
+    companyId="company-storybook" initialProvider={preset?.provider ?? source as "openai" | "anthropic" | "xai"}
+    initialProtocol={preset?.protocol} providerLabel={preset?.label}
+    onCancel={() => setSource(undefined)} onComplete={() => setSource(undefined)}
+  /></QueryClientProvider>;
+  return <div className="space-y-5">
+    <Input aria-label="Search connectors" placeholder="Search connectors…" value={query} onChange={event => setQuery(event.target.value)} />
+    <div role="list" aria-label="Connector list" className="space-y-3">
+      {APP_STORE_DEFINITIONS.filter(entry => entry.tags?.includes("model-provider") && `${entry.name} ${entry.description}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name)).map(entry => <ConnectorCard
+        key={entry.slug}
+        row={{ key: entry.slug, slug: entry.slug, name: entry.name, description: entry.description, brandKey: entry.slug, entry, logoUrl: entry.branding.logoUrl, darkLogoUrl: entry.branding.darkLogoUrl, applications: [], connections: [], chatEndpoints: [] }}
+        userProfileById={new Map()} chatConnectorsEnabled={false}
+        onNavigate={() => setSource(entry.slug)} onRequestRemove={() => {}}
+      />)}
+    </div>
+  </div>;
 }

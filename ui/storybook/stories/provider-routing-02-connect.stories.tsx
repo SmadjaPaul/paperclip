@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, userEvent, within } from "storybook/test";
+import { ProviderCatalogReview } from "../prototypes/provider-routing/ConnectionCatalog";
 import { ConnectionSetup } from "../prototypes/provider-routing/ConnectionSetup";
 import { ReviewFrame } from "../prototypes/provider-routing/shared";
 import {
@@ -13,7 +14,7 @@ const meta = {
   ...reviewLifecycle,
   decorators: [
     (Story) => (
-      <ReviewFrame location="Apps → AI connections → Add connection. The same setup is opened from onboarding, agent settings, and task requests.">
+      <ReviewFrame location="Apps → Connectors → Connect on a provider row. Permissions default to everyone and all agents under Advanced.">
         <Story />
       </ReviewFrame>
     ),
@@ -23,35 +24,23 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const ChooseProvider: Story = {
+  name: "Connector catalog",
+  render: () => <ProviderCatalogReview />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByRole("button", { name: "OpenAI" })).toBeVisible();
-    await expect(
-      canvas.queryByRole("button", { name: "Custom provider or gateway" }),
-    ).not.toBeInTheDocument();
-    await expect(
-      canvas.queryByRole("button", { name: "Amazon Bedrock" }),
-    ).not.toBeInTheDocument();
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Advanced providers" }),
-    );
-    await expect(
-      canvas.getByRole("button", { name: "Custom provider or gateway" }),
-    ).toBeVisible();
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Advanced providers" }),
-    );
+    await expect(canvas.queryByText("Connect a model provider")).not.toBeInTheDocument();
+    for (const slug of ["openrouter", "bedrock", "responses-api", "messages-api", "chat-completions-api", "local"]) {
+      const row = canvasElement.querySelector(`[data-app-slug="${slug}"]`)! as HTMLElement;
+      await expect(within(row).getByRole("button", { name: /^Connect / })).toBeVisible();
+    }
   },
 };
-export const AdvancedProviders: Story = { args: { initialAdvanced: true } };
-export const Access: Story = { args: { initialStep: "access" } };
+export const Access: Story = { name: "Permissions defaults", args: { initialStep: "access" } };
 export const SharedAccess: Story = {
   ...Access,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(
-      canvas.getByRole("radio", { name: "Any human in the organization" }),
-    );
+    await userEvent.click(canvas.getByRole("button", { name: "Change" }));
     await expect(
       canvas.getByRole("radio", { name: "Any human in the organization" }),
     ).toBeChecked();
@@ -116,7 +105,7 @@ export const CustomEndpointWalkthrough: Story = {
       "https://models.example.com/v1",
     );
     await userEvent.type(canvas.getByLabelText("API key"), "storybook-example");
-    await userEvent.click(canvas.getByRole("button", { name: "Connect" }));
+    await userEvent.click(canvas.getByRole("button", { name: /^Connect / }));
     await expect(
       canvas.getByRole("heading", { name: "Connection ready" }),
     ).toBeVisible();

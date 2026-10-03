@@ -1,27 +1,24 @@
 {
   "schemaVersion": 1,
-  "slug": "openrouter",
-  "name": "OpenRouter",
-  "description": "Connect OpenRouter accounts for your agents.",
+  "slug": "bedrock",
+  "name": "Amazon Bedrock",
+  "description": "Use Claude through Amazon Bedrock with a Bedrock API key and AWS region.",
   "categories": [
     "ai"
   ],
   "branding": {
-    "logoUrl": "/brands/apps/openrouter.svg",
-    "darkLogoUrl": "/brands/apps/openrouter-dark.svg"
+    "logoUrl": "/brands/apps/bedrock.svg"
   },
-  "urlPatterns": [
-    "https://openrouter.ai/api/*"
-  ],
+  "urlPatterns": [],
   "methods": [
     {
       "key": "ai-api_key",
-      "label": "OpenRouter API key",
+      "label": "Amazon Bedrock API key",
       "purpose": "ai",
       "transport": "runtime_auth",
       "auth": "api_key",
       "ai": {
-        "provider": "openrouter",
+        "provider": "anthropic",
         "method": "api_key"
       },
       "grantKinds": [
@@ -31,7 +28,7 @@
       "ownershipModes": [
         "customer"
       ],
-      "whenToUse": "Authenticate an agent with this account.",
+      "whenToUse": "Use Claude through Amazon Bedrock with a Bedrock API key and AWS region.",
       "guidanceMd": "Use your personal account or an explicitly shared company account.",
       "riskTier": "S3",
       "credentialFields": [
@@ -46,7 +43,7 @@
       ],
       "keyPlacement": {
         "location": "env",
-        "name": "OPENROUTER_API_KEY"
+        "name": "AWS_BEARER_TOKEN_BEDROCK"
       }
     }
   ],

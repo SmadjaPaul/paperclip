@@ -897,6 +897,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   const modelProvider = adapterType === "opencode_local" && aiConnectionBindingSchema.safeParse(
     (overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection,
   ).data?.provider === "openrouter" ? "openrouter" : runnerProvider;
+  const connectionModels = useConnectionModels(selectedCompanyId, isCreate ? undefined : aiConnectionBindingSchema.safeParse((overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection).data, aiRoutingHarness(adapterType, runnerProvider, config.acpxAgent));
   // Fetch adapter models for the effective provider, including unsaved changes.
   const modelQueryKey = selectedCompanyId
     ? queryKeys.agents.adapterModels(selectedCompanyId, adapterType, currentDefaultEnvironmentId || null, modelProvider)
@@ -904,18 +905,19 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   const {
     data: fetchedModels,
     error: fetchedModelsError,
+    isLoading: fetchingModels,
   } = useQuery({
     queryKey: modelQueryKey,
     queryFn: () => agentsApi.adapterModels(selectedCompanyId!, adapterType, {
       environmentId: currentDefaultEnvironmentId || null,
       provider: modelProvider,
     }),
-    enabled: Boolean(selectedCompanyId),
+    enabled: Boolean(selectedCompanyId) && !connectionModels,
   });
   const [refreshModelsError, setRefreshModelsError] = useState<string | null>(null);
   const [refreshingModels, setRefreshingModels] = useState(false);
-  const connectionModels = useConnectionModels(selectedCompanyId, isCreate ? undefined : aiConnectionBindingSchema.safeParse((overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection).data, aiRoutingHarness(adapterType, runnerProvider, config.acpxAgent));
   const models = connectionModels?.models ?? fetchedModels ?? externalModels ?? [];
+  const modelError = connectionModels ? connectionModels.error : fetchedModelsError;
   const adapterCommandField = "command";
   const {
     data: detectedModelData,
@@ -1724,6 +1726,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
           {isLocal && (<>
               <ModelDropdown
                 models={models}
+                loadingModels={connectionModels?.isLoading ?? fetchingModels}
                 value={currentModelId}
                 onChange={(v) => {
                   const supportedEfforts = setupEfforts(adapterType, v);
@@ -1748,35 +1751,36 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                 defaultLabel={adapterType === "claude_local" ? `Default (${DEFAULT_CLAUDE_LOCAL_MODEL})` : undefined}
                 allowDefault={adapterType !== "opencode_local" && adapterType !== "pi_local" && adapterType !== "paperclip_runner"}
                 required={adapterType === "opencode_local" || adapterType === "pi_local"}
-                groupByProvider={adapterType === "opencode_local" || adapterType === "pi_local"}
-                preserveOrder={adapterCuratesModelOrder(adapterType)}
+                groupByProvider={!connectionModels && (adapterType === "opencode_local" || adapterType === "pi_local")}
+                preserveOrder={Boolean(connectionModels) || adapterCuratesModelOrder(adapterType)}
                 creatable
-                detectedModel={detectedModel}
+                detectedModel={connectionModels ? undefined : detectedModel}
                 detectedModelCandidates={[]}
-                onDetectModel={adapterType === "opencode_local" || adapterType === "paperclip_runner"
+                onDetectModel={connectionModels || adapterType === "opencode_local" || adapterType === "paperclip_runner"
                   ? undefined
                   : async () => {
                       const result = await refetchDetectedModel();
                       return result.data?.model ?? null;
                     }}
                 onRefreshModels={
-                  supportsAdapterModelRefresh(adapterType)
+                  connectionModels ? connectionModels.refreshModels : supportsAdapterModelRefresh(adapterType)
                     ? handleRefreshModels
                     : undefined
                 }
-                refreshingModels={refreshingModels}
+                refreshingModels={connectionModels?.refreshing ?? refreshingModels}
                 detectModelLabel="Detect model"
                 emptyDetectHint="No model detected. Select or enter one manually."
               />
-              {(refreshModelsError || fetchedModelsError) && (
+              {(refreshModelsError || modelError) && (
                 <p className="text-xs text-destructive">
                   {refreshModelsError
-                    ?? (fetchedModelsError instanceof Error
-                      ? fetchedModelsError.message
+                    ?? (modelError instanceof Error
+                      ? modelError.message
                       : "Failed to load adapter models.")}
                 </p>
               )}
               {adapterType === "opencode_local"
+                && !connectionModels
                 && currentDefaultEnvironment
                 && currentDefaultEnvironment.driver !== "local" && (
                 <p className="text-xs text-muted-foreground">
@@ -3747,6 +3751,7 @@ export function ModelDropdown({
   onDetectModel,
   onRefreshModels,
   refreshingModels,
+  loadingModels,
   detectModelLabel,
   emptyDetectHint,
   defaultLabel,
@@ -3767,6 +3772,7 @@ export function ModelDropdown({
   onDetectModel?: () => Promise<string | null>;
   onRefreshModels?: () => Promise<void>;
   refreshingModels?: boolean;
+  loadingModels?: boolean;
   detectModelLabel?: string;
   emptyDetectHint?: string;
   defaultLabel?: string;
@@ -4042,7 +4048,7 @@ export function ModelDropdown({
             {filteredModels.length === 0 && !canCreateManualModel && promotedModelIds.size === 0 && (
               <div className="px-2 py-2 space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  {onDetectModel
+                  {loadingModels ? "Loading models…" : onDetectModel
                     ? (emptyDetectHint ?? "No model detected yet. Enter a provider/model manually.")
                     : "No models found."}
                 </p>

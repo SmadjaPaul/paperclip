@@ -1,5 +1,7 @@
 import { useId } from "react";
+import { Plus, UserRound } from "lucide-react";
 import {
+  aiConnectionCatalogSlug,
   isAiConnectionCompatible,
   type AiConnectionBinding,
 } from "@paperclipai/shared";
@@ -14,6 +16,16 @@ import { AppLogo } from "@/pages/apps/AppLogo";
 import { Button } from "@/components/ui/button";
 import { aiConnectionProblem, personalAiDefault } from "./model";
 import type { AiConnectionPickerProps } from "./AiConnectionPicker";
+import type { AiConnectionSummary } from "./model";
+
+function ConnectionLabel({ connection, label }: { connection: AiConnectionSummary; label?: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <AppLogo name={connection.name} brandKey={aiConnectionCatalogSlug(connection.provider, connection.routing)} size={20} compact />
+      <span className="truncate">{label ?? connection.name}</span>
+    </span>
+  );
+}
 
 /** The same connection control on Create agent and Harness / Runtime. */
 export function AiConnectionSelect({
@@ -110,16 +122,17 @@ export function AiConnectionSelect({
               loading ? "Loading connections…" : "Choose a connection"
             }
           >
-            {value?.mode === "responsible_user"
-              ? "Responsible user’s default"
-              : (selected?.name ??
-                (value ? "Unavailable connection" : undefined))}
+            {selected
+              ? <ConnectionLabel connection={selected} label={value?.mode === "responsible_user" ? "Responsible user’s default" : undefined} />
+              : value?.mode === "responsible_user"
+                ? "Responsible user’s default"
+                : value ? "Unavailable connection" : undefined}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {incompatible && selected && (
             <SelectItem value={selected.id} disabled>
-              {selected.name} · Incompatible
+              <ConnectionLabel connection={selected} label={`${selected.name} · Incompatible`} />
             </SelectItem>
           )}
           {compatible.map((c) => (
@@ -128,25 +141,19 @@ export function AiConnectionSelect({
               value={c.id}
               disabled={Boolean(aiConnectionProblem(c))}
             >
-              <span className="flex items-center gap-2">
-                <AppLogo
-                  name={c.name}
-                  brandKey={
-                    c.routing?.kind === "bedrock" ? "bedrock" : c.provider
-                  }
-                  size={16}
-                />
-                {c.name}
-                {c.status !== "connected" ? " · Reconnect" : ""}
-              </span>
+              <ConnectionLabel connection={c} label={`${c.name}${c.status !== "connected" ? " · Reconnect" : ""}`} />
             </SelectItem>
           ))}
           {(canUseDefault || value?.mode === "responsible_user") && (
             <SelectItem value="responsible_user" disabled={!canUseDefault}>
+              <span className="flex size-5 shrink-0 items-center justify-center"><UserRound className="size-4" /></span>
               Responsible user’s default
             </SelectItem>
           )}
-          <SelectItem value="connect">Connect an account…</SelectItem>
+          <SelectItem value="connect">
+            <span className="flex size-5 shrink-0 items-center justify-center"><Plus className="size-4" /></span>
+            Connect an account…
+          </SelectItem>
         </SelectContent>
       </Select>
       {!readOnly && onReconnect && !loading && !error && (

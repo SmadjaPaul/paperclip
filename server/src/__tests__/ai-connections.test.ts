@@ -8,7 +8,7 @@ import { mkdtemp, rm, access, readFile, writeFile, stat } from "node:fs/promises
 import os from "node:os";
 import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";
-import { createDb, companies, agents, heartbeatRuns, companyMemberships, connectionGrants, connectionGrantDelegations, connectionGrantMembers, toolConnections, toolConnectionInstalls, aiConnectionDefaults, aiProviderDefaults, adapterAuthSessions, environments, issues, issueThreadInteractions, issueRecoveryActions, connectionIntentDeliveries, agentWakeupRequests, companySecrets, principalPermissionGrants } from "@paperclipai/db";
+import { createDb, companies, agents, heartbeatRuns, companyMemberships, connectionGrants, toolApplications, connectionGrantDelegations, connectionGrantMembers, toolConnections, toolConnectionInstalls, aiConnectionDefaults, aiProviderDefaults, adapterAuthSessions, environments, issues, issueThreadInteractions, issueRecoveryActions, connectionIntentDeliveries, agentWakeupRequests, companySecrets, principalPermissionGrants } from "@paperclipai/db";
 import { startEmbeddedPostgresTestDatabase } from "@paperclipai/db/test-embedded-postgres";
 import { aiConnectionService } from "../services/ai-connections.js";
 import * as executionTarget from "@paperclipai/adapter-utils/execution-target";
@@ -219,6 +219,9 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
     const saved = await service.save(companyId, "alice", { ...input, agentIds: [...input.agentIds] }, "old-gateway-credential");
     const [stored] = await db.select().from(toolConnections).where(eq(toolConnections.id, saved.connectionId));
     expect(stored!.config.ai).toMatchObject({ routing });
+    expect(stored!.config.sourceTemplateKey).toBe("responses-api");
+    const [application] = await db.select().from(toolApplications).where(eq(toolApplications.id, stored!.applicationId));
+    expect(application).toMatchObject({ applicationKey: "app-gallery:responses-api", metadata: { sourceTemplateKey: "responses-api" } });
     // PostgreSQL JSONB reorders object keys; compare values, not serialization.
     const reordered = { models: [...routing.models], auth: routing.auth, baseUrl: routing.baseUrl, protocol: routing.protocol, kind: routing.kind };
     expect(await service.save(companyId, "alice", { ...input, agentIds: [], allAgents: true, connectionId: saved.connectionId, routing: reordered }, "new-gateway-credential")).toEqual(saved);

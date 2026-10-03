@@ -75,7 +75,6 @@ export const OptionalProviderWalkthrough: Story = {
       canvas.getByRole("button", { name: "Use another provider or gateway" }),
     );
     await userEvent.click(canvas.getByRole("button", { name: "OpenRouter" }));
-    await userEvent.click(canvas.getByRole("button", { name: "Continue" }));
     await userEvent.type(canvas.getByLabelText("API key"), "storybook-example");
     await userEvent.click(canvas.getByRole("button", { name: "Connect" }));
     await userEvent.click(
@@ -86,7 +85,7 @@ export const OptionalProviderWalkthrough: Story = {
     ).toHaveTextContent("Codex");
     await expect(
       canvas.getByRole("combobox", { name: "Connection" }),
-    ).toHaveTextContent("My OpenRouter");
+    ).toHaveTextContent("Company OpenRouter");
     await expect(
       canvas.getByRole("button", { name: "Advanced model settings" }),
     ).toHaveAttribute("aria-expanded", "false");

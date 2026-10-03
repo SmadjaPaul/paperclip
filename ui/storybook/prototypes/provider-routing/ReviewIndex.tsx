@@ -35,7 +35,7 @@ const existing = [
 const descriptions = [
   "Review scope, ownership, existing surfaces, and decisions.",
   "Sign in, choose a model, test, and finish. Other providers stay under Advanced.",
-  "Familiar accounts first; OpenRouter, Bedrock, and custom endpoints under Advanced providers.",
+  "Regular provider connector rows; each opens setup with shared permissions folded under Advanced.",
   "Everyday account and model selection, then optional advanced providers, aliases, and validation.",
   "Connection list, destinations, credential replacement, models, helper defaults, and access.",
   "Task-level reconnect, missing personal credentials, protocol failure, and quota failure.",
@@ -105,7 +105,7 @@ export function ReviewIndex() {
           </li>
           <li>
             First onboarding keeps its usual sign-in path. The optional provider
-            link is inside Advanced; additional setup uses Access → Connect.
+            link is inside Advanced; the catalog opens each provider directly. Permissions stay under Advanced.
           </li>
           <li>
             Changing a connection preserves the harness and asks for a

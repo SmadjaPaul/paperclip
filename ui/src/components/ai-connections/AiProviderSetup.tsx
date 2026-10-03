@@ -12,7 +12,7 @@ import {
 import { aiConnectionsApi } from "@/api/ai-connections";
 import { agentsApi } from "@/api/agents";
 import { ConnectionChoiceList } from "@/features/connections/ConnectionChoiceList";
-import { AccessStepContent } from "@/features/connections/ConnectionSetupFlow";
+import { ConnectionAccessDefaults, connectionDefaultSummarySentence } from "@/features/connections/ConnectionSetupFlow";
 import { AppLogo } from "@/pages/apps/AppLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,6 +70,8 @@ export function AiProviderSetup({
   agentId,
   environmentId,
   initialProvider,
+  initialProtocol,
+  providerLabel,
   reconnect,
   onCancel,
   onComplete,
@@ -78,6 +80,8 @@ export function AiProviderSetup({
   agentId?: string;
   environmentId?: string;
   initialProvider?: ProviderChoice;
+  initialProtocol?: AiProviderRouting["protocol"];
+  providerLabel?: string;
   reconnect?: AiManagedConnectionSummary;
   onCancel: () => void;
   onComplete: (
@@ -94,15 +98,13 @@ export function AiProviderSetup({
       : initialProvider,
   );
   const [step, setStep] = useState(
-    reconnect ? "connect" : initialProvider ? "access" : "provider",
+    reconnect || initialProvider ? "connect" : "provider",
   );
-  const [ownership, setOwnership] = useState<"personal" | "shared">(
-    reconnect?.ownership ?? "personal",
-  );
+  const [ownershipChoice, setOwnership] = useState<"personal" | "shared">();
   const [allAgentsChoice, setAllAgents] = useState<boolean>();
   const [agentIds, setAgentIds] = useState(new Set(agentId ? [agentId] : []));
   const [protocol, setProtocol] = useState<AiProviderRouting["protocol"]>(
-    reconnect?.routing?.protocol ?? "responses",
+    reconnect?.routing?.protocol ?? initialProtocol ?? "responses",
   );
   const [auth, setAuth] = useState<AiProviderRouting["auth"]>(
     reconnect?.routing?.auth ?? "bearer",
@@ -121,12 +123,13 @@ export function AiProviderSetup({
     queryFn: () => aiConnectionsApi.list(companyId, agentId),
   });
   const canManageConnections = accounts.data?.canManageConnections ?? false;
+  const ownership = reconnect?.ownership ?? ownershipChoice ?? (!agentId && canManageConnections ? "shared" : "personal");
   const allAgents = allAgentsChoice ?? (!agentId && canManageConnections);
   const agents = useQuery({
     queryKey: ["agents", companyId, "provider-access"],
     queryFn: () => agentsApi.list(companyId),
   });
-  const label = providers.find((p) => p.id === provider)?.name ?? "provider";
+  const label = providerLabel ?? providers.find((p) => p.id === provider)?.name ?? "provider";
   const advanced = reconnect ? Boolean(reconnect.routing) : ["openrouter", "bedrock", "gateway", "local"].includes(provider ?? "");
   const nativeProvider: AiProvider =
     provider === "bedrock"
@@ -223,13 +226,50 @@ export function AiProviderSetup({
         }))}
       onSelect={(id) => {
         setProvider(id as ProviderChoice);
-        setStep("access");
+        setStep("connect");
         setApiKey("");
         setAuth("bearer");
         save.reset();
       }}
     />
   );
+  const modelSettings = (
+    <label className="block space-y-2 text-xs text-muted-foreground">
+      Model IDs (comma separated)
+      <Input
+        aria-label="Model IDs"
+        value={models}
+        onChange={(e) => setModels(e.target.value)}
+        disabled={Boolean(reconnect)}
+      />
+      <span className="block">
+        Use the provider’s model ID or your gateway’s alias. You can
+        also enter one on the agent.
+      </span>
+    </label>
+  );
+  const accessDefaults = !reconnect ? (
+    <ConnectionAccessDefaults
+      companyId={companyId}
+      extra={advanced ? modelSettings : undefined}
+      agents={agents.data ?? []}
+      sentence={connectionDefaultSummarySentence({ grantKind: ownership === "shared" ? "organization" : "user", authKind: auth === "none" ? "none" : "api_key", installChoice: allAgents ? "all" : "specific", installCount: agentIds.size })}
+      capabilities={{ canCreateOrganizationGrant: canManageConnections, canSetCompanyInstall: canManageConnections }}
+      authKind={auth === "none" ? "none" : "api_key"}
+      grantKind={ownership === "shared" ? "organization" : "user"}
+      grantKinds={["user", "organization"]}
+      setGrantKind={kind => setOwnership(kind === "organization" ? "shared" : "personal")}
+      installChoice={allAgents ? "all" : "specific"}
+      setInstallChoice={choice => setAllAgents(choice === "all")}
+      installAgentIds={agentIds}
+      setInstallAgentIds={setAgentIds}
+      disabled={save.isPending}
+      notice={!canManageConnections ? ["Only a connection manager can share this credential with everyone or give every agent access."] : undefined}
+    />
+  ) : undefined;
+  const cancel = () => reconnect || initialProvider ? onCancel() : setStep("provider");
+  if (!reconnect && accounts.isPending) return <p role="status">Loading connection permissions…</p>;
+  if (!reconnect && accounts.isError) return <p role="alert">Could not load connection permissions. <Button type="button" variant="ghost" onClick={() => void accounts.refetch()}>Retry</Button></p>;
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6" onSubmit={(event) => event.stopPropagation()}>
       <div className="space-y-2">
@@ -238,12 +278,8 @@ export function AiProviderSetup({
             ? "Connect a model provider"
             : `${reconnect ? "Reconnect" : "Connect"} ${label}`}
         </h2>
-        {step !== "provider" && (
-          <p className="text-xs text-muted-foreground">
-            {step === "access" ? "Access" : "Connect"}
-          </p>
-        )}
       </div>
+      {agents.isError && <p role="alert" className="text-sm text-destructive">Could not load agents. <Button type="button" variant="ghost" onClick={() => void agents.refetch()}>Retry</Button></p>}
       {step === "provider" ? (
         <>
           {choices(false)}
@@ -256,34 +292,6 @@ export function AiProviderSetup({
           <Button type="button" variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-        </>
-      ) : step === "access" ? (
-        <>
-          {accounts.error && <p role="alert" className="text-sm text-destructive">Could not load connection permissions. <Button type="button" variant="ghost" onClick={() => void accounts.refetch()}>Retry</Button></p>}
-          {agents.error && (
-            <p role="alert" className="text-sm text-destructive">
-              Could not load agents. Try again.
-            </p>
-          )}
-          <AccessStepContent
-            agents={agents.data ?? []}
-            pending={accounts.isPending || Boolean(accounts.error)}
-            capabilities={{ canCreateOrganizationGrant: canManageConnections, canSetCompanyInstall: canManageConnections }}
-            authKind="api_key"
-            grantKind={ownership === "shared" ? "organization" : "user"}
-            grantKinds={["user", "organization"]}
-            setGrantKind={(kind) =>
-              setOwnership(kind === "organization" ? "shared" : "personal")
-            }
-            installChoice={allAgents ? "all" : "specific"}
-            setInstallChoice={(choice) => setAllAgents(choice === "all")}
-            installAgentIds={agentIds}
-            setInstallAgentIds={setAgentIds}
-            submitLabel="Continue"
-            onBack={() => setStep("provider")}
-            onContinue={() => setStep("connect")}
-            bare
-          />
         </>
       ) : !advanced ? (
         <AiConnectionCredentialStep
@@ -298,7 +306,9 @@ export function AiProviderSetup({
           allAgents={allAgents}
           agentIds={[...agentIds]}
           environmentId={environmentId}
-          onCancel={() => (reconnect ? onCancel() : setStep("access"))}
+          onCancel={cancel}
+          defaults={accessDefaults}
+          disabled={!reconnect && !allAgents && agentIds.size === 0}
           onComplete={complete}
         />
       ) : (
@@ -334,9 +344,9 @@ export function AiProviderSetup({
                     if (v !== "messages" && auth === "api_key")
                       setAuth("bearer");
                   }}
-                  disabled={Boolean(reconnect)}
+                  disabled={Boolean(reconnect) || Boolean(initialProtocol)}
                 >
-                  <SelectTrigger aria-label="API format">
+                  <SelectTrigger aria-label="API format" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -373,7 +383,7 @@ export function AiProviderSetup({
                 onValueChange={(v) => setAuth(v as typeof auth)}
                 disabled={Boolean(reconnect)}
               >
-                <SelectTrigger aria-label="Authentication">
+                <SelectTrigger aria-label="Authentication" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -410,24 +420,7 @@ export function AiProviderSetup({
               </label>
             )
           }
-          <details>
-            <summary className="cursor-pointer text-sm text-muted-foreground">
-              Advanced model settings
-            </summary>
-            <label className="mt-4 block space-y-2 text-xs text-muted-foreground">
-              Model IDs (comma separated)
-              <Input
-                aria-label="Model IDs"
-                value={models}
-                onChange={(e) => setModels(e.target.value)}
-                disabled={Boolean(reconnect)}
-              />
-              <span className="block">
-                Use the provider’s model ID or your gateway’s alias. You can
-                also enter one on the agent.
-              </span>
-            </label>
-          </details>
+          {reconnect && <details><summary className="cursor-pointer text-sm text-muted-foreground">Model settings</summary>{modelSettings}</details>}
           <p className="text-xs text-muted-foreground">
             Test the connection with your chosen model in the agent’s execution
             environment after connecting.
@@ -439,11 +432,12 @@ export function AiProviderSetup({
                 : save.error.message}
             </p>
           )}
+          {accessDefaults}
           <div className="flex items-center justify-between gap-3">
             <Button
               type="button"
               variant="ghost"
-              onClick={() => (reconnect ? onCancel() : setStep("access"))}
+              onClick={cancel}
               disabled={save.isPending}
             >
               Back
@@ -451,7 +445,8 @@ export function AiProviderSetup({
             <Button
               type="submit"
               disabled={
-                save.isPending ||
+                save.isPending || accounts.isPending || accounts.isError ||
+                (!reconnect && !allAgents && agentIds.size === 0) ||
                 (auth !== "none" && !apiKey.trim())
               }
             >

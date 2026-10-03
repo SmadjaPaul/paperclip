@@ -1,43 +1,19 @@
 {
   "schemaVersion": 1,
-  "slug": "openai",
-  "name": "OpenAI",
-  "description": "Connect OpenAI accounts for your agents.",
+  "slug": "responses-api",
+  "name": "Responses API",
+  "description": "Connect any compatible harness to an OpenAI Responses-compatible provider or gateway, including Emissary.",
   "categories": [
     "ai"
   ],
   "branding": {
-    "logoUrl": "/brands/apps/openai.svg",
-    "darkLogoUrl": "/brands/apps/openai-dark.svg"
+    "logoUrl": "/brands/apps/api-key-generic.svg"
   },
-  "urlPatterns": [
-    "https://api.openai.com/*"
-  ],
+  "urlPatterns": [],
   "methods": [
     {
-      "key": "ai-subscription",
-      "label": "OpenAI subscription",
-      "purpose": "ai",
-      "transport": "runtime_auth",
-      "auth": "oauth",
-      "ai": {
-        "provider": "openai",
-        "method": "subscription"
-      },
-      "grantKinds": [
-        "user",
-        "organization"
-      ],
-      "ownershipModes": [
-        "customer"
-      ],
-      "whenToUse": "Authenticate an agent with this account.",
-      "guidanceMd": "Use your personal account or an explicitly shared company account.",
-      "riskTier": "S3"
-    },
-    {
       "key": "ai-api_key",
-      "label": "OpenAI API key",
+      "label": "Responses API API key",
       "purpose": "ai",
       "transport": "runtime_auth",
       "auth": "api_key",
@@ -52,7 +28,7 @@
       "ownershipModes": [
         "customer"
       ],
-      "whenToUse": "Authenticate an agent with this account.",
+      "whenToUse": "Connect any compatible harness to an OpenAI Responses-compatible provider or gateway, including Emissary.",
       "guidanceMd": "Use your personal account or an explicitly shared company account.",
       "riskTier": "S3",
       "credentialFields": [

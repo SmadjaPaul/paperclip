@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { KeyRound, Network } from "lucide-react";
+import { Network } from "lucide-react";
 import { ConnectionChoiceList } from "@/features/connections/ConnectionChoiceList";
-import { StepHeader } from "@/features/connections/ConnectionSetupFlow";
+import { StepHeader, ConnectionAccessDefaults, connectionDefaultSummarySentence } from "@/features/connections/ConnectionSetupFlow";
 import { ProviderApiKeyCard } from "@/components/AdapterLoginChrome";
 import { AppLogo } from "@/pages/apps/AppLogo";
-import { RoutingAccess } from "./RoutingAccess";
 import { Button } from "@/components/ui/button";
 import {
   AdvancedOptions,
@@ -46,7 +45,7 @@ export function ConnectionSetup({
   onComplete,
   onCancel,
 }: SetupProps) {
-  const [step, setStep] = useState<string>(initialStep);
+  const [step, setStep] = useState<string>(initialStep === "access" ? "connect" : initialStep);
   const [provider, setProvider] = useState(initialProvider);
   const [method, setMethod] = useState(initialMethod);
   const [protocol, setProtocol] = useState<Protocol>(initialProtocol);
@@ -59,7 +58,7 @@ export function ConnectionSetup({
   );
   const [project, setProject] = useState("");
   const [header, setHeader] = useState("X-API-Key");
-  const [ownership, setOwnership] = useState<"personal" | "shared">("personal");
+  const [ownership, setOwnership] = useState<"personal" | "shared">("shared");
   const [allAgents, setAllAgents] = useState(true);
   const [agentIds, setAgentIds] = useState(new Set(["nova"]));
   const [error, setError] = useState(initialError);
@@ -167,7 +166,7 @@ export function ConnectionSetup({
         setEndpoint("");
         setMethod("key");
         setError(undefined);
-        setStep("access");
+        setStep("connect");
       }}
     />
   );
@@ -228,24 +227,12 @@ export function ConnectionSetup({
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-4 sm:p-6">
       <StepHeader
         title={`Connect ${providerLabel}`}
-        subtitle="Choose access, then connect your provider."
+        subtitle="Connect now — permissions and access are yours to change afterwards."
         step="key"
-        activeIndex={step === "access" ? 0 : 1}
-        labels={["Access", "Connect"]}
+        activeIndex={0}
+        labels={["Connect"]}
       />
-      {step === "access" ? (
-        <RoutingAccess
-          ownership={ownership}
-          onOwnershipChange={setOwnership}
-          allAgents={allAgents}
-          onAllAgentsChange={setAllAgents}
-          agentIds={agentIds}
-          onAgentIdsChange={setAgentIds}
-          onBack={() => setStep("provider")}
-          onContinue={() => setStep("connect")}
-        />
-      ) : (
-        <>
+      <>
           {isAws && (
             <Choice
               label="AWS region"
@@ -406,21 +393,6 @@ export function ConnectionSetup({
               />
             </>
           )}
-          {provider === "custom" && (
-            <details className="space-y-3 text-sm">
-              <summary className="cursor-pointer">Advanced</summary>
-              <p className="text-xs text-muted-foreground">
-                Model aliases, context limits, and helper-model defaults can be
-                managed after connecting. API format determines which harnesses
-                can use this endpoint.
-              </p>
-              {method === "header" && (
-                <p>
-                  Authentication header: <code>{header}</code>
-                </p>
-              )}
-            </details>
-          )}
           {error && (
             <Notice error>
               {error === "credential"
@@ -428,21 +400,26 @@ export function ConnectionSetup({
                 : "Enter a valid HTTP or HTTPS base URL without embedded credentials."}
             </Notice>
           )}
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <KeyRound className="size-3" />
-            {ownership === "personal"
-              ? "Personal connection"
-              : "Shared connection"}{" "}
-            · {providerLabel}
-          </div>
+          <ConnectionAccessDefaults
+            companyId="company-storybook"
+            agents={[{ id: "nova", name: "Nova" }, { id: "atlas", name: "Atlas" }]}
+            sentence={connectionDefaultSummarySentence({ grantKind: ownership === "shared" ? "organization" : "user", authKind: method === "none" ? "none" : "api_key", installChoice: allAgents ? "all" : "specific", installCount: agentIds.size })}
+            authKind={method === "none" ? "none" : "api_key"}
+            grantKinds={["user", "organization"]}
+            grantKind={ownership === "shared" ? "organization" : "user"}
+            setGrantKind={kind => setOwnership(kind === "organization" ? "shared" : "personal")}
+            installChoice={allAgents ? "all" : "specific"}
+            setInstallChoice={choice => setAllAgents(choice === "all")}
+            installAgentIds={agentIds}
+            setInstallAgentIds={setAgentIds}
+          />
           <Footer
-            onBack={() => setStep("access")}
+            onBack={cancel}
             next={method === "subscription" ? "Sign in" : "Connect"}
             onNext={connect}
             disabled={!canConnect}
           />
-        </>
-      )}
+      </>
     </div>
   );
 }

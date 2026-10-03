@@ -20,6 +20,8 @@ import {
 } from "@paperclipai/db";
 import {
   AI_CONNECTION_CAPABILITIES,
+  aiConnectionCatalogSlug,
+  getAppStoreDefinition,
   aiConnectionMetadataSchema,
   aiSubscriptionNeedsIsolatedLogin,
   isAiConnectionCompatible,
@@ -624,8 +626,8 @@ export function aiConnectionService(db: Db) {
         if (targets.length !== new Set(input.agentIds).size)
           throw forbidden("Agent does not belong to this company");
       }
-      const source = routing?.kind === "bedrock" || routing?.kind === "gateway" || routing?.kind === "local" ? routing.kind : input.provider;
-      const providerName = source === "bedrock" ? "Amazon Bedrock" : source === "gateway" ? "Model gateway" : source === "local" ? "Local models" : AI_CONNECTION_CAPABILITIES[input.provider].name;
+      const source = aiConnectionCatalogSlug(input.provider, routing);
+      const providerName = getAppStoreDefinition(source)?.name ?? AI_CONNECTION_CAPABILITIES[input.provider].name;
       const key = `app-gallery:${source}`;
       await tx
         .insert(toolApplications)

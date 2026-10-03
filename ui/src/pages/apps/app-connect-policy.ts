@@ -67,7 +67,7 @@ export function canEnterAppsConnect(
     );
   }
   const source = searchParams.get("source") ?? "";
-  if (["model-provider", "google-ai", "google", "bedrock", "gateway", "local"].includes(source)) return true;
+  if (["google-ai", "gateway"].includes(source)) return true;
   const entry = getAppStoreDefinition(source);
   if (
     !chatConnectorsEnabled &&

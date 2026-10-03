@@ -131,3 +131,28 @@ export function aiRoutingModel(
   const prefix = route.kind === "openrouter" ? "openrouter" : "paperclip";
   return model.startsWith(`${prefix}/`) ? model : `${prefix}/${model}`;
 }
+
+/** Catalog identity is derived from routing, including accounts saved before these rows existed. */
+export function aiConnectionCatalogSlug(provider: string, routing?: Pick<AiProviderRouting, "kind" | "protocol">): string {
+  if (routing?.kind === "gateway") {
+    return routing.protocol === "messages" ? "messages-api"
+      : routing.protocol === "chat" ? "chat-completions-api" : "responses-api";
+  }
+  return routing?.kind ?? provider;
+}
+
+/** Direct catalog setup presets; legacy gateway links still open their existing setup. */
+export function aiProviderSetupPreset(source: string | null): {
+  provider: "openrouter" | "bedrock" | "gateway" | "local" | "google";
+  protocol?: AiProviderRouting["protocol"];
+  label?: string;
+} | undefined {
+  switch (source) {
+    case "responses-api": return { provider: "gateway", protocol: "responses", label: "Responses API" };
+    case "messages-api": return { provider: "gateway", protocol: "messages", label: "Messages API" };
+    case "chat-completions-api": return { provider: "gateway", protocol: "chat", label: "Chat Completions API" };
+    case "google-ai": return { provider: "google" };
+    case "google": case "openrouter": case "bedrock": case "gateway": case "local": return { provider: source };
+    default: return undefined;
+  }
+}
