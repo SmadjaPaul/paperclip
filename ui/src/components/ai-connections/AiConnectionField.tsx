@@ -48,6 +48,7 @@ export function AiConnectionField({
   environmentId,
   legacy = false,
   readOnly = false,
+  preferAdvanced = false,
 }: {
   companyId: string;
   agentId?: string;
@@ -59,6 +60,7 @@ export function AiConnectionField({
   environmentId?: string;
   legacy?: boolean;
   readOnly?: boolean;
+  preferAdvanced?: boolean;
 }) {
   const provider = aiProviderForAdapter(adapterType);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -97,7 +99,7 @@ export function AiConnectionField({
   const openConnection = (reconnect?: AiManagedConnectionSummary) => {
     returnFocus.current = document.activeElement as HTMLElement;
     setReconnecting(reconnect);
-    setAdvancedSetup(!reconnect && provider === "openrouter");
+    setAdvancedSetup(!reconnect && (preferAdvanced || provider === "openrouter"));
     setAllAgents(accounts.data?.canManageConnections ?? false);
     setSavedAccount(undefined);
     selectDefault.reset();
@@ -188,7 +190,9 @@ export function AiConnectionField({
           </DialogHeader>
           {advancedSetup ? <AiProviderSetup
             companyId={companyId} agentId={agentId} environmentId={environmentId}
-            onCancel={() => setAdvancedSetup(false)}
+            advancedOnly={preferAdvanced}
+            initialProtocol={adapterType === "claude_local" ? "messages" : adapterType === "codex_local" ? "responses" : "chat"}
+            onCancel={() => preferAdvanced ? setConnecting(false) : setAdvancedSetup(false)}
             onComplete={binding => {
               void client.invalidateQueries({ queryKey: ["ai-connections", companyId] });
               setConnecting(false);

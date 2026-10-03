@@ -55,6 +55,7 @@ async function mount(
   localEnvironment = false,
   deploymentMode: "local_trusted" | "authenticated" = "local_trusted",
   localAiLoginSupported = true,
+  advancedConnection?: Parameters<typeof AgentProviderConnection>[0]["advancedConnection"],
 ) {
   const key =
     adapterType === "claude_local" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
@@ -127,6 +128,7 @@ async function mount(
           testConnection={test}
           onConnected={connected}
           managedAccount={managedAccount}
+          advancedConnection={advancedConnection}
         />
       </QueryClientProvider>,
     ),
@@ -138,7 +140,7 @@ async function mount(
 }
 function click(text: string) {
   const button = [...host.querySelectorAll("button")].find((b) =>
-    b.textContent?.includes(text),
+    b.getAttribute("aria-label") ? b.getAttribute("aria-label") === text : b.textContent?.includes(text),
   )!;
   expect(button).toBeTruthy();
   flushSync(() => button.click());
@@ -149,6 +151,53 @@ function openProvider() {
   );
 }
 describe("AgentProviderConnection reuse", () => {
+  it("switches subscription, API key, and advanced connections in the same place", async () => {
+    await mount("codex_local", false, true, true, true, false, undefined, false, "local_trusted", true, {
+      content: <div>Advanced connection picker</div>,
+    });
+    const modeLabels = () => Array.from(host.querySelectorAll('button[aria-label^="Use "]')).map(button => button.getAttribute("aria-label"));
+    expect(modeLabels()).toEqual(["Use API key instead", "Use advanced connection instead"]);
+    expect(host.querySelector('[aria-label="Saved subscription"]')).not.toBeNull();
+    expect(host.textContent).not.toContain("Advanced connection picker");
+    click("Use API key instead");
+    expect(host.querySelector('[aria-label="Saved API key"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Saved subscription"]')).toBeNull();
+    expect(modeLabels()).toEqual(["Use subscription instead", "Use advanced connection instead"]);
+    click("Use advanced connection instead");
+    expect(host.textContent).toContain("Advanced connection picker");
+    expect(host.querySelector("select")).toBeNull();
+    expect(modeLabels()).toEqual(["Use subscription instead", "Use API key instead"]);
+    const useConnection = Array.from(host.querySelectorAll("button")).find(button => button.textContent?.includes("Use connection"))!;
+    expect(useConnection.disabled).toBe(true);
+    click("Use subscription instead");
+    expect(host.querySelector('[aria-label="Saved subscription"]')).not.toBeNull();
+    expect(host.textContent).not.toContain("Advanced connection picker");
+  });
+
+  it("continues with the selected advanced connection", async () => {
+    const binding = { provider: "openrouter" as const, method: "api_key" as const, mode: "shared" as const, connectionId: "router", grantId: "router-grant" };
+    const { connected, test } = await mount("codex_local", false, true, true, true, false, undefined, false, "local_trusted", true, {
+      content: <div>Advanced connection picker</div>, value: binding,
+    });
+    click("Use advanced connection instead");
+    click("Use connection");
+    expect(connected).toHaveBeenCalledExactlyOnceWith({ env: {}, aiConnection: binding });
+    expect(test).not.toHaveBeenCalled();
+  });
+
+  it("uses the saved subscription after switching back from an advanced connection", async () => {
+    const { connected } = await mount("codex_local", false, true, true, true, false, undefined, false, "local_trusted", true, {
+      content: <div>Advanced connection picker</div>,
+      value: { provider: "openrouter", method: "api_key", mode: "shared", connectionId: "router", grantId: "router-grant" },
+    });
+    click("Use advanced connection instead");
+    click("Use subscription instead");
+    click("Use saved subscription");
+    await vi.waitFor(() => expect(connected).toHaveBeenCalled());
+    expect(connected.mock.calls[0][0]).toMatchObject({ env: { CODEX_HOME: { type: "secret_ref", secretId: "codex-home" } } });
+    expect(connected.mock.calls[0][0].aiConnection).toBeUndefined();
+  });
+
   it.each([
     ["anthropic", "claude_local"], ["openai", "codex_local"], ["xai", "grok_local"],
   ] as const)("lets %s recovery switch methods without overwriting the original account", async (provider, adapterType) => {

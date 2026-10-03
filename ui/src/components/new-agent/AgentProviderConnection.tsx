@@ -2,7 +2,8 @@ import { healthApi } from "@/api/health";
 import { aiConnectionsApi } from "@/api/ai-connections";
 import { useLocalAiLogin } from "../ai-connections/useLocalAiLogin";
 import type { AiConnectionBinding, AiConnectionLoginIntent } from "@paperclipai/shared";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Cable } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import {
@@ -18,8 +19,8 @@ import {
   OnboardingCardField,
   OnboardingLoginCard,
 } from "../AdapterLoginChrome";
-import { ModelSourceTiles } from "../onboarding/ModelSourceTiles";
-import { CredentialModeLink } from "../onboarding/CredentialModeLink";
+import { ModelSourceTiles, type ModelConnectionMode } from "../onboarding/ModelSourceTiles";
+import { CredentialModeLink, ConnectionModeLinks } from "../onboarding/CredentialModeLink";
 import { FooterNav } from "../onboarding/FooterNav";
 import { MAKE_ROOM, CARD_ENTER } from "../onboarding/onboarding-motion";
 import { buildFixedClaudeOAuthBinding } from "../environment-variables-editor/model";
@@ -44,6 +45,7 @@ export function AgentProviderConnection({
   testConnection,
   testError,
   managedAccount,
+  advancedConnection,
 }: {
   companyId: string;
   adapterType: "claude_local" | "codex_local" | "grok_local";
@@ -54,6 +56,7 @@ export function AgentProviderConnection({
   onBack: () => void;
   testConnection: (connection: ProviderConnection) => Promise<boolean>;
   testError?: string | null;
+  advancedConnection?: { content: ReactNode; value?: AiConnectionBinding };
   /** Connections supplies its access intent; presentation and login controllers stay shared. */
   managedAccount?: {
     intent: AiConnectionLoginIntent;
@@ -81,6 +84,7 @@ export function AgentProviderConnection({
     setLoginPhase("preparing");
   };
   const [methodChoice, setMethod] = useState<"subscription" | "api" | null>(managedAccount?.initialMethod === "api_key" ? "api" : managedAccount ? "subscription" : null);
+  const [advanced, setAdvanced] = useState(false);
   const [opened, setOpened] = useState(false);
   const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null);
   const [loginPhase, setLoginPhase] = useState<"preparing" | "ready" | "waiting" | "connecting">("preparing");
@@ -136,7 +140,7 @@ export function AgentProviderConnection({
   const localLogin = useLocalAiLogin(companyId, managedIntent ?? {
     provider: aiProvider, method: "subscription", name: `My ${provider} subscription`,
     ownership: "personal", agentIds: [], allAgents: true,
-  }, canUseLocalLogin && method === "subscription" && !savedSubscription && !storedLogin.data,
+  }, !advanced && canUseLocalLogin && method === "subscription" && !savedSubscription && !storedLogin.data,
   { allowHostClaude: health.data?.deploymentMode === "local_trusted" });
   const auth = useQuery({
     queryKey: queryKeys.agents.authSignal(
@@ -151,7 +155,7 @@ export function AgentProviderConnection({
         environmentId ?? undefined,
       ),
     retry: false,
-    enabled: !managedAccount,
+    enabled: !managedAccount && !advanced,
   });
   async function connect() {
     if (busy || managedAccount?.disabled) return;
@@ -229,6 +233,16 @@ export function AgentProviderConnection({
     !savedKeys.loading &&
     !storedLogin.data &&
     (Boolean(managedAccount) || auth.data?.status !== "present" || subscriptionId === "");
+  const switchMode = (next: ModelConnectionMode) => {
+    cancel();
+    setAdvanced(next === "advanced");
+    setOpened(advancedConnection ? true : opened);
+    savedManagedAccount.current = null;
+    if (next !== "advanced") setMethod(next);
+    setApiKey("");
+    setStoredConnection(null);
+    setError(null);
+  };
   return (
     <div className="min-w-0 max-w-full">
       <ModelSourceTiles
@@ -236,31 +250,33 @@ export function AgentProviderConnection({
         sources={[
           {
             id: adapterType,
-            label: provider,
-            icon: <AdapterMark type={adapterType} />,
+            label: advanced ? "Advanced connection" : provider,
+            icon: advanced ? <Cable className="size-6" /> : <AdapterMark type={adapterType} />,
           },
         ]}
-        mode={method}
+        mode={advanced ? "advanced" : method}
         selectedId={opened ? adapterType : null}
         collapsed={opened}
-        onSelect={() => { if (!managedAccount?.disabled) setOpened(true); }}
+        onSelect={() => { if (!advanced && !managedAccount?.disabled) setOpened(true); }}
       />
-      {(!opened || managedAccount) && !managedAccount?.fixedMethod && (
+      {(!opened || managedAccount || advancedConnection) && !managedAccount?.fixedMethod && (
         <div className="-ml-3 mt-1">
-          <CredentialModeLink
-            mode={method}
-            onChange={(next) => {
-              cancel();
-              setOpened(opened);
-              savedManagedAccount.current = null;
-              setMethod(next);
-              setApiKey("");
-              setStoredConnection(null);
-              setError(null);
-            }}
-          />
+          {advancedConnection
+            ? <ConnectionModeLinks mode={advanced ? "advanced" : method} onChange={switchMode} />
+            : <CredentialModeLink mode={method} onChange={switchMode} />}
         </div>
       )}
+      {advanced && advancedConnection ? <>
+        <div className="pt-5">{advancedConnection.content}</div>
+        <FooterNav
+          onBack={onBack}
+          primaryLabel="Use connection"
+          primaryDisabled={!advancedConnection.value}
+          onPrimary={() => {
+            if (advancedConnection.value) onConnected({ env: {}, aiConnection: advancedConnection.value });
+          }}
+        />
+      </> : <>
       {!opened && savedKeys.options.length > 0 && (
         <p className="mt-2 text-sm text-muted-foreground">
           {savedKeys.options.length} saved API{" "}
@@ -438,6 +454,7 @@ export function AgentProviderConnection({
           } else void connect();
         }}
       />
+      </>}
     </div>
   );
 }

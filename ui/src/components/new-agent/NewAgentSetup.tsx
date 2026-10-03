@@ -721,10 +721,6 @@ function Setup({
                         center
                       />
                     </div>
-                    <details className="mb-5">
-                      <summary className="cursor-pointer text-sm text-muted-foreground">Use another connection</summary>
-                      <div className="pt-4"><AiConnectionField companyId={companyId} agentName={name} adapterType={brandType} model={model} environmentId={environmentId ?? undefined} value={aiBinding} onChange={binding => { setConnection({ env: {}, aiConnection: binding }); setRuntimeAiBinding(undefined); resetTest(); setScreen("runtime"); }} /></div>
-                    </details>
                     <AgentProviderConnection
                       key={environmentId ?? "local"}
                       companyId={companyId}
@@ -732,6 +728,25 @@ function Setup({
                       environmentId={environmentId}
                       canLogin={canLogin}
                       localEnvironment={environment?.driver === "local"}
+                      advancedConnection={{
+                        value: aiBinding,
+                        content: (
+                          <AiConnectionField
+                            companyId={companyId}
+                            agentName={name}
+                            adapterType={brandType}
+                            model={model}
+                            environmentId={environmentId ?? undefined}
+                            value={aiBinding}
+                            preferAdvanced
+                            onChange={binding => {
+                              setConnection({ env: {}, aiConnection: binding });
+                              setRuntimeAiBinding(undefined);
+                              resetTest();
+                            }}
+                          />
+                        ),
+                      }}
                       onBack={() => navigate("/agents/all")}
                       testConnection={runTest}
                       testError={

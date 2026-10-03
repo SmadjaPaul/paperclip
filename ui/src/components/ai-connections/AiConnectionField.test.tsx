@@ -18,6 +18,7 @@ vi.mock("./AiConnectionCredentialStep", () => ({
   },
 }));
 vi.mock("./AiConnectionManagement", () => ({ AiConnectionLegacyNotice: () => null }));
+vi.mock("./AiProviderSetup", () => ({ AiProviderSetup: () => <div>Advanced provider setup</div> }));
 vi.mock("@/pages/apps/AppLogo", () => ({ AppLogo: () => null }));
 
 let root: Root;
@@ -36,10 +37,11 @@ async function settle() {
     flushSync(() => {});
   }
 }
-async function mount(connections: AiManagedConnectionSummary[], canManageConnections = true) {
+async function mount(connections: AiManagedConnectionSummary[], canManageConnections = true, preferAdvanced = false) {
   mocks.list.mockResolvedValue({ currentUserId: "owner", connections, canManageConnections });
   flushSync(() => root.render(<QueryClientProvider client={client}>
     <AiConnectionField companyId="company" agentId="agent" agentName="Nova" adapterType="claude_local"
+      preferAdvanced={preferAdvanced}
       value={{ provider: "anthropic", method: "subscription", mode: "responsible_user" }} onChange={onChange} />
   </QueryClientProvider>));
   await settle();
@@ -78,6 +80,13 @@ it("reconnects the unavailable personal default in place", async () => {
   await settle();
   expect(mocks.setDefault).not.toHaveBeenCalled();
   expect(onChange).toHaveBeenCalledWith({ provider: "anthropic", method: "subscription", mode: "responsible_user" });
+});
+
+it("opens provider setup directly when connecting from the advanced mode", async () => {
+  await mount([], true, true);
+  await click("Connect another account");
+  expect(document.body.textContent).toContain("Advanced provider setup");
+  expect(credentialProps).toBeUndefined();
 });
 
 it("selects the returned new grant and actual method before adopting the personal default", async () => {

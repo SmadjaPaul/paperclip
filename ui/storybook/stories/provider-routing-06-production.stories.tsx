@@ -3,6 +3,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AiProviderSetup } from "@/components/ai-connections/AiProviderSetup";
 import { AiConnectionSelect } from "@/components/ai-connections/AiConnectionSelect";
+import { AiConnectionField } from "@/components/ai-connections/AiConnectionField";
+import { AgentProviderConnection, type ProviderConnection } from "@/components/new-agent/AgentProviderConnection";
 import { useConnectionModels } from "@/components/ai-connections/useConnectionModels";
 import { ModelDropdown } from "@/components/AgentConfigForm";
 import { queryKeys } from "@/lib/queryKeys";
@@ -10,7 +12,7 @@ import type {
   AiConnectionBinding,
   AiManagedConnectionSummary,
 } from "@paperclipai/shared";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { ProviderCatalogReview } from "../prototypes/provider-routing/ConnectionCatalog";
 import { ReviewFrame } from "../prototypes/provider-routing/shared";
 
@@ -129,6 +131,27 @@ function OpenRouterModels() {
   });
   return <QueryClientProvider client={client}><OpenRouterModelPicker /></QueryClientProvider>;
 }
+function AgentConnectionModes() {
+  const [value, setValue] = useState<AiConnectionBinding>();
+  const [connected, setConnected] = useState<ProviderConnection>();
+  const [client] = useState(() => {
+    const query = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+    const connections = { currentUserId: "you", connections: accounts, canManageConnections: true };
+    query.setQueryData(["ai-connections", companyId], connections);
+    query.setQueryData(["ai-connections", companyId, undefined], connections);
+    query.setQueryData(queryKeys.secrets.myUserSecrets(companyId), []);
+    query.setQueryData(queryKeys.secrets.list(companyId), []);
+    query.setQueryData(queryKeys.agents.authSignal(companyId, "codex_local", null), { status: "present" });
+    return query;
+  });
+  return <QueryClientProvider client={client}>
+    <AgentProviderConnection companyId={companyId} adapterType="codex_local" environmentId={null}
+      canLogin={false} onBack={() => {}} testConnection={async () => true} onConnected={setConnected}
+      advancedConnection={{ value, content: <AiConnectionField companyId={companyId} agentName="Nova"
+        adapterType="codex_local" value={value} onChange={setValue} preferAdvanced /> }} />
+    {connected && <p role="status">Continue to Configure with {connected.aiConnection?.provider}.</p>}
+  </QueryClientProvider>;
+}
 const meta = {
   title: "AI Connections/Provider routing/06 Production components",
   parameters: { layout: "fullscreen" },
@@ -142,6 +165,27 @@ const meta = {
 } satisfies Meta;
 export default meta;
 type Story = StoryObj<typeof meta>;
+export const NewAgentConnectionModes: Story = {
+  name: "New agent connection modes",
+  parameters: { docs: { description: { story: "Agents → New agent → Connect. The production connection step switches between saved subscriptions, API keys, and advanced connections. Environment selection belongs to Configure." } } },
+  render: () => <AgentConnectionModes />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("combobox", { name: "Saved subscription" })).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Use API key instead" }));
+    await waitFor(() => expect(canvas.getByPlaceholderText("Enter API key here")).toBeVisible());
+    await userEvent.click(canvas.getByRole("button", { name: "Use advanced connection instead" }));
+    await expect(canvas.queryByPlaceholderText("Enter API key here")).not.toBeInTheDocument();
+    await expect(canvas.getByRole("button", { name: "Use connection" })).toBeDisabled();
+    await userEvent.click(canvas.getByRole("combobox", { name: "Connection" }));
+    await userEvent.click(within(canvasElement.ownerDocument.body).getByRole("option", { name: "Company OpenRouter" }));
+    await userEvent.click(canvas.getByRole("button", { name: "Use connection" }));
+    await expect(canvas.getByRole("status")).toHaveTextContent("Continue to Configure with openrouter.");
+    await userEvent.click(canvas.getByRole("button", { name: "Use subscription instead" }));
+    await expect(canvas.getByRole("combobox", { name: "Saved subscription" })).toBeVisible();
+    await expect(canvas.queryByRole("combobox", { name: "Connection" })).not.toBeInTheDocument();
+  },
+};
 export const OpenRouterPopularModels: Story = {
   name: "OpenRouter popular models",
   parameters: { docs: { description: { story: "Production model picker and connection discovery hook. The connection has no custom model list; the public catalog fixture supplies models in popularity order." } } },

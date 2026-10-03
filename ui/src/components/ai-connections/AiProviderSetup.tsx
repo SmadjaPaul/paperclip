@@ -72,6 +72,7 @@ export function AiProviderSetup({
   initialProvider,
   initialProtocol,
   providerLabel,
+  advancedOnly = false,
   reconnect,
   onCancel,
   onComplete,
@@ -82,6 +83,7 @@ export function AiProviderSetup({
   initialProvider?: ProviderChoice;
   initialProtocol?: AiProviderRouting["protocol"];
   providerLabel?: string;
+  advancedOnly?: boolean;
   reconnect?: AiManagedConnectionSummary;
   onCancel: () => void;
   onComplete: (
@@ -282,6 +284,7 @@ export function AiProviderSetup({
       {agents.isError && <p role="alert" className="text-sm text-destructive">Could not load agents. <Button type="button" variant="ghost" onClick={() => void agents.refetch()}>Retry</Button></p>}
       {step === "provider" ? (
         <>
+          {advancedOnly ? choices(true) : <>
           {choices(false)}
           <details>
             <summary className="cursor-pointer text-sm text-muted-foreground">
@@ -289,6 +292,7 @@ export function AiProviderSetup({
             </summary>
             <div className="pt-4">{choices(true)}</div>
           </details>
+          </>}
           <Button type="button" variant="ghost" onClick={onCancel}>
             Cancel
           </Button>

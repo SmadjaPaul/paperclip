@@ -10,6 +10,12 @@ homes. Managed default/shared accounts are additional choices in that same
 selector. Selecting “Sign in to another account” survives background refreshes;
 Claude authorization paste keeps upstream's immediate Connecting feedback.
 
+New-agent Connect offers subscription, API key, and advanced connection as
+equivalent modes. “Use advanced connection instead” sits below the native
+credential switch; it opens the existing compatible-connection picker and
+provider setup. Only the selected mode's form is shown. Execution environment
+selection lives in Configure.
+
 Storybook's simulated controllers and page annotations do not run in the app.
 
 ## Compatibility and selection

@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 
 import { cn } from "../../lib/utils";
-import type { CredentialMode } from "./ModelSourceTiles";
+import type { CredentialMode, ModelConnectionMode } from "./ModelSourceTiles";
 import { LINK_LABEL_FADE_IN, LINK_LABEL_FADE_OUT } from "./onboarding-motion";
 
 /**
@@ -17,10 +17,13 @@ import { LINK_LABEL_FADE_IN, LINK_LABEL_FADE_OUT } from "./onboarding-motion";
  * holds up because they are right above it.
  */
 
-const LINK_LABEL: Record<CredentialMode, string> = {
-  subscription: "Use API key instead",
-  api: "Use subscription instead",
+const LINK_LABEL: Record<ModelConnectionMode, string> = {
+  subscription: "Use subscription instead",
+  api: "Use API key instead",
+  advanced: "Use advanced connection instead",
 };
+const NATIVE_MODES: CredentialMode[] = ["subscription", "api"];
+const CONNECTION_MODES: ModelConnectionMode[] = [...NATIVE_MODES, "advanced"];
 
 const OTHER_MODE: Record<CredentialMode, CredentialMode> = {
   subscription: "api",
@@ -34,10 +37,31 @@ export function CredentialModeLink({
   mode: CredentialMode;
   onChange: (next: CredentialMode) => void;
 }) {
+  return <ModeLink destination={OTHER_MODE[mode]} onClick={() => onChange(OTHER_MODE[mode])} modes={NATIVE_MODES} />;
+}
+
+/** Three equivalent routes through the new-agent connection step. */
+export function ConnectionModeLinks({ mode, onChange }: {
+  mode: ModelConnectionMode;
+  onChange: (next: ModelConnectionMode) => void;
+}) {
+  return <div className="flex flex-col items-start">
+    {CONNECTION_MODES.filter(destination => destination !== mode).map(destination => (
+      <ModeLink key={destination} destination={destination} onClick={() => onChange(destination)} modes={CONNECTION_MODES} />
+    ))}
+  </div>;
+}
+
+function ModeLink({ destination, onClick, modes }: {
+  destination: ModelConnectionMode;
+  onClick: () => void;
+  modes: ModelConnectionMode[];
+}) {
   return (
     <button
       type="button"
-      onClick={() => onChange(OTHER_MODE[mode])}
+      aria-label={LINK_LABEL[destination]}
+      onClick={onClick}
       className={cn(
         // A grid rather than a flow of text, so both labels can occupy one cell
         // and overlap during the swap. Same padding as the checkbox row this
@@ -53,7 +77,7 @@ export function CredentialModeLink({
         also takes them out of the accessibility tree, leaving the button's name
         to the one real label below.
       */}
-      {(Object.keys(LINK_LABEL) as CredentialMode[]).map((sizerMode) => (
+      {modes.map((sizerMode) => (
         <span
           key={sizerMode}
           aria-hidden
@@ -65,7 +89,7 @@ export function CredentialModeLink({
 
       <AnimatePresence initial={false} mode="sync">
         <motion.span
-          key={mode}
+          key={destination}
           // Left-aligned in that max-width cell, so the sentence starts at the
           // same x in both states and only its tail changes.
           className={cn(
@@ -81,7 +105,7 @@ export function CredentialModeLink({
           animate={{ opacity: 1, transition: LINK_LABEL_FADE_IN }}
           exit={{ opacity: 0, transition: LINK_LABEL_FADE_OUT }}
         >
-          {LINK_LABEL[mode]}
+          {LINK_LABEL[destination]}
         </motion.span>
       </AnimatePresence>
     </button>
