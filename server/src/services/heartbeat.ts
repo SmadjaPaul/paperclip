@@ -24,6 +24,7 @@ import { githubBotConnectionIdsForRun } from "./chat-github-tools.js";
 import { isBrowserUseConnection } from "./browser-use-client.js";
 import { readQueuedInteractionResponse } from "./queued-interaction-response.js";
 import { AGENT_CHAT_DIRECTIVE, isConversation, isConversationExecutionWake, isWaitingConversation, prepareConversationTurn, settleConversationTurn } from "./agent-conversations.js";
+import { withAdapterExecutionPhase } from "@paperclipai/adapter-utils/execution-phase";
 import { getConversationConfirmationContext, type ConversationConfirmationContext } from "./conversation-confirmation-context.js";
 import { PROCESS_IDENTITY_RECORDED, recordNativeLocalProcessStop } from "./native-local-process-stop.js";
 import { hasAcknowledgedNativeReassignmentStopIntent, hasAcknowledgedNativeStopIntent, isAcknowledgedNativeStop, acknowledgedNativeStopExecutionHasStopped } from "./acknowledged-native-stop.js";
@@ -20422,6 +20423,10 @@ export function heartbeatService(
         run.controllerBootId !== legacyControllerBootId) return;
     activeRunExecutions.add(run.id);
     const executionControl = createAdapterExecutionControl();
+    // This coarse scope also covers host finalization after the adapter returns.
+    // Nested scopes refine the label without making any termination claim.
+    executionControl.phases.enter("host_execution");
+    const executionPhaseContext = { onExecutionPhase: executionControl.phases.enter };
     const controllerLease = watchLegacyControllerLease(db, run, executionControl.controller);
     let runScratch: HeartbeatRunScratch | null = null;
     let githubLauncherLocation:
@@ -24909,7 +24914,7 @@ export function heartbeatService(
               await dispatchResolvedInteractionContinuationWithAtomicGate(
                 (markDispatchStarted) => {
                   legacyAdapterEntered = true;
-                  return adapter.execute({
+                  return withAdapterExecutionPhase(executionPhaseContext, "adapter_execution", () => adapter.execute({
                     getFreshSessionHandoff,
                     runId: run.id,
                     agent,
@@ -24933,6 +24938,7 @@ export function heartbeatService(
                     onLog,
                     onMeta: onAdapterMeta,
                     onEvent: onAdapterEvent,
+                    onExecutionPhase: executionControl.phases.enter,
                     startupTraceContext: getStartupTraceContext(),
                     onRuntimeProgress: async (progress) => {
                       await recordCurrentHeartbeatRunRuntimeProgress(
@@ -24984,7 +24990,7 @@ export function heartbeatService(
                       });
                     },
                     authToken: authToken ?? undefined,
-                  });
+                  }));
                 },
               );
             if (!guardedDispatch.dispatched) return;
@@ -25227,7 +25233,7 @@ export function heartbeatService(
             );
           }
           await nativeInstructionReservation?.release();
-          await releaseInstructionCopy();
+          await withAdapterExecutionPhase(executionPhaseContext, "instruction_cleanup", releaseInstructionCopy);
         }
         // Reconcile the referenced-project set against the real remote staging outcome. A referenced
         // project can pass authorization and clone locally at run prep, then fail to stage into the
@@ -26633,8 +26639,8 @@ export function heartbeatService(
               message: "Instruction edits could not be recovered before environment release. No instruction save is claimed.",
               payload: { state: "unavailable", code: uncapturedInstructions.errorCode } });
           }
-          await releaseInstructionCopy();
-          await releaseEnvironmentLeasesForRun({
+          await withAdapterExecutionPhase(executionPhaseContext, "instruction_cleanup", releaseInstructionCopy);
+          await withAdapterExecutionPhase(executionPhaseContext, "lease_release", () => releaseEnvironmentLeasesForRun({
             runId: run.id,
             companyId: run.companyId,
             agentId: run.agentId,
@@ -26642,7 +26648,7 @@ export function heartbeatService(
             failureReason: latestRun?.error ?? undefined,
             providerResourceDisposition: providerResourceDispositionForRun,
             nativeLifecycleTelemetry: nativeLifecycleTelemetryForRun,
-          });
+          }));
           await releaseRuntimeServicesForRun(run.id).catch(() => undefined);
         }
         if (
@@ -29614,7 +29620,7 @@ export function heartbeatService(
               adapterType: agent?.adapterType,
               runtimeMode: run.runtimeMode,
               abortRequested: control.controller.signal.aborted,
-            });
+            }, control);
             const stopped = await getRun(run.id);
             if (stopped && isHeartbeatRunTerminalStatus(stopped.status)) {
               if (
