@@ -55,8 +55,7 @@ export async function connect(context: BrowserContext, team: Team, write = true,
   let redirectUrl: string;
   if (page) {
     await page.goto(request.consentUrl);
-    await expect(page.getByRole("heading", { name: "Connect your assistant to Paperclip" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Connect organization", exact: true })).toBeDisabled();
+    await expect(page.getByRole("heading", { name: /^Connect .+ to Paperclip$/ })).toBeVisible();
     await page.getByRole("radio", { name: team.name, exact: true }).check();
     if (write) await page.getByRole("checkbox").check();
     await page.getByRole("button", { name: "Connect organization", exact: true }).click();

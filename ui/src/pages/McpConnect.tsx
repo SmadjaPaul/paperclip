@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Paperclip } from "lucide-react";
+import { Globe, Paperclip } from "lucide-react";
 import { Link, useParams } from "@/lib/router";
 import type { McpConnection, McpConnectionRequest } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,22 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { CompanyPatternIcon } from "@/components/CompanyPatternIcon";
 import { api } from "../api/client";
+
+// Use bundled icons for known origins; client-supplied names never select branding.
+function ClientOrigin({ origin }: { origin: string }) {
+  const [failed, setFailed] = useState(false);
+  let favicon: string | undefined;
+  try {
+    const url = new URL(origin);
+    if (url.origin === "https://claude.ai") favicon = "/brands/claude-color.svg";
+    else if (["https://chatgpt.com", "https://chat.openai.com", "https://openai.com"].includes(url.origin)) favicon = "/brands/codex-color.svg";
+    else if (url.protocol === "https:" && !url.username && !url.password) favicon = new URL("/favicon.ico", url.origin).href;
+  } catch { /* An unavailable origin keeps the neutral site icon. */ }
+  return <div className="flex items-center gap-2 text-sm text-muted-foreground">
+    {favicon && !failed ? <img src={favicon} alt="" className="size-4 shrink-0 object-contain" referrerPolicy="no-referrer" crossOrigin="anonymous" onError={() => setFailed(true)} /> : <Globe className="size-4 shrink-0" aria-hidden="true" />}
+    <bdi className="min-w-0 break-all">{origin}</bdi>
+  </div>;
+}
 
 export function McpConnectPage() {
   const { id = "" } = useParams();
@@ -19,7 +35,7 @@ export function McpDevicePage({ initialCode }: { initialCode?: string } = {}) {
   const [code, setCode] = useState(initialCode ?? new URLSearchParams(window.location.search).get("user_code") ?? "");
   const [submitted, setSubmitted] = useState(code);
   if (submitted) return <McpConnectRequest key={submitted} id={submitted} device onEditCode={() => setSubmitted("")} />;
-  return <div className="mx-auto max-w-xl py-10"><Card className="space-y-4 p-6"><Paperclip className="size-8" /><h1 className="text-xl font-semibold">Connect your assistant</h1>
+  return <div className="mx-auto max-w-xl py-10"><Card className="space-y-4 p-6"><div className="flex items-center gap-3"><Paperclip className="size-8 shrink-0" /><h1 className="min-w-0 text-xl font-semibold">Connect your assistant to Paperclip</h1></div>
     <form className="space-y-4" onSubmit={event => { event.preventDefault(); setSubmitted(code.trim()); }}>
       <label htmlFor="device-code" className="text-sm">Enter the code shown by your assistant</label>
       <Input id="device-code" autoComplete="off" value={code} onChange={event => setCode(event.target.value)} required maxLength={12} />
@@ -33,20 +49,29 @@ function McpConnectRequest({ id, device = false, onEditCode }: { id: string; dev
   const [deviceResult, setDeviceResult] = useState<"approved" | "denied" | null>(null);
   const request = useQuery({ queryKey: [device ? "mcp-device" : "mcp-request", id], queryFn: () => api.get<McpConnectionRequest>(device ? `/mcp/device?user_code=${encodeURIComponent(id)}` : `/mcp/requests/${encodeURIComponent(id)}`), retry: false });
   const data = request.data;
-  const selectedCompanyId = data?.requestedCompanyId ?? companyId;
+  const selectedCompanyId = data?.requestedCompanyId ?? (companyId || data?.companies[0]?.id || "");
+  // Pin the default once loaded so a refetch cannot silently switch organizations.
+  useEffect(() => {
+    if (!companyId && !data?.requestedCompanyId && data?.companies[0]) setCompanyId(data.companies[0].id);
+  }, [companyId, data]);
+  const clientName = data?.clientName.trim();
+  const assistantName = clientName && !/^(assistant|mcp client)$/i.test(clientName) ? clientName : "your assistant";
+  const clientOrigin = data?.clientOrigin || data?.redirectOrigin;
   const company = data?.companies.find((item) => item.id === selectedCompanyId);
   const allowWrites = Boolean(data?.requestedWrite && company?.canWrite && writeEnabled);
   const consent = useMutation({
-    mutationFn: (decision: "approve" | "deny") => api.post<{ redirectUrl?: string; status?: "approved" | "denied" }>(device ? "/mcp/device/consent" : `/mcp/requests/${encodeURIComponent(id)}/consent`, { decision, companyId: selectedCompanyId || undefined, allowWrites, ...(device ? { userCode: id } : {}) }),
+    mutationFn: (decision: "approve" | "deny") => api.post<{ redirectUrl?: string; status?: "approved" | "denied" }>(device ? "/mcp/device/consent" : `/mcp/requests/${encodeURIComponent(id)}/consent`, { decision, companyId: selectedCompanyId || undefined, allowWrites: decision === "approve" && allowWrites, ...(device ? { userCode: id } : {}) }),
     onSuccess: ({ redirectUrl, status }) => { if (device && status) setDeviceResult(status); else if (redirectUrl) window.location.assign(redirectUrl); },
   });
   if (deviceResult) return <div className="mx-auto max-w-xl py-10"><Card className="block space-y-4 p-6"><Paperclip className="size-8" /><h1 className="text-xl font-semibold">{deviceResult === "approved" ? "Access approved" : "Connection declined"}</h1><p className="text-sm">{deviceResult === "approved" ? "Return to your assistant. It will finish connecting automatically." : "No access was granted. You can start a new connection from your assistant."}</p><Button variant="outline" asChild><Link to="/">Back to Paperclip</Link></Button></Card></div>;
   const returnPath = device ? `/mcp-device?user_code=${encodeURIComponent(id)}` : `/mcp-connect/${id}`;
   return <div className="mx-auto max-w-xl py-10">
     <Card className="block space-y-4 p-6">
-      <Paperclip className="size-8 text-foreground" role="img" aria-label="Paperclip" />
-      <h1 className="text-xl font-semibold">Connect your assistant to Paperclip</h1>
-      {data && <p className="break-words text-sm">Access for <bdi className="font-medium">{data.clientName}</bdi>{(data.clientOrigin || data.redirectOrigin) && <> · <bdi className="text-muted-foreground">{data.clientOrigin || data.redirectOrigin}</bdi></>}</p>}
+      <div className="flex items-center gap-3">
+        <Paperclip className="size-8 shrink-0 text-foreground" role="img" aria-label="Paperclip" />
+        <h1 className="min-w-0 break-words text-xl font-semibold">Connect <bdi>{assistantName}</bdi> to Paperclip</h1>
+      </div>
+      {clientOrigin && <ClientOrigin key={clientOrigin} origin={clientOrigin} />}
       {device && <p className="text-sm">Confirm this matches the code shown by your assistant: <strong className="font-mono">{id.toUpperCase()}</strong></p>}
       {request.isPending && <p className="text-sm text-muted-foreground">Loading connection request…</p>}
       {request.error && <p className="text-sm text-destructive">{request.error.message} Start a new connection from your assistant.</p>}
@@ -62,11 +87,11 @@ function McpConnectRequest({ id, device = false, onEditCode }: { id: string; dev
           </div> : <fieldset className="space-y-2" disabled={consent.isPending}>
             <legend className="mb-2 text-sm font-medium">Organization</legend>
             {data.companies.map((item) => <label key={item.id} className="flex items-center gap-3 rounded-md border border-border p-3 text-sm">
-              <input type="radio" name="company" aria-label={item.name} value={item.id} checked={companyId === item.id} onChange={() => setCompanyId(item.id)} />
+              <input type="radio" name="company" aria-label={item.name} value={item.id} checked={selectedCompanyId === item.id} onChange={() => setCompanyId(item.id)} />
               <CompanyPatternIcon companyName={item.name} logoUrl={item.logoUrl} className="size-12 shrink-0 rounded-lg" />
               <span className="min-w-0 break-words font-medium">{item.name}</span>
             </label>)}
-            {!data.companies.length && <p className="text-sm text-muted-foreground">{data.setupUrl ? "No organization is available for this account yet. Create a hosted organization, configure its agents and spending, then return here. If this request expires, reconnect from your assistant." : "This account has no available organizations. Ask an organization owner to add you, then reconnect from your assistant."}</p>}
+            {!data.companies.length && <p className="text-sm text-muted-foreground">This account has no available organizations. Ask an organization owner to add you, then reconnect from your assistant.</p>}
           </fieldset>}
           <p className="text-sm">Read all of your Paperclip data</p>
           {data.requestedWrite && <label htmlFor="mcp-allow-writes" className="flex items-start gap-3 text-sm leading-6">
@@ -76,7 +101,6 @@ function McpConnectRequest({ id, device = false, onEditCode }: { id: string; dev
             <span>Allow write access and creating tasks as me</span>
           </label>}
           {company && !company.canWrite && <p className="text-sm text-muted-foreground">Your role in this organization is read-only.</p>}
-          {data.setupUrl && !data.requestedCompanyId && <Button variant="outline" asChild><a href={data.setupUrl} target="_blank" rel="noopener noreferrer">Create a hosted organization</a></Button>}
           {consent.error && <p className="text-sm text-destructive">{consent.error.message}</p>}
           <div className="flex items-center justify-between gap-3">
             <Button variant="outline" disabled={consent.isPending} onClick={() => consent.mutate("deny")}>Cancel</Button>

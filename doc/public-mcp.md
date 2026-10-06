@@ -72,6 +72,12 @@ command in their own terminal if the host cannot preserve it across turns.
 Never add upstream model keys to the MCP URL or config; the assistant’s model
 connection is configured separately.
 
+Consent names the client when available and shows its identifying URL with a site
+icon. The first available organization is selected initially; requested write
+access starts checked when the selected role permits it. Changing organization
+or refetching does not undo a write-access opt-out. Nothing is authorized until
+**Connect organization** is clicked. Organization creation stays outside consent.
+
 Return to the same Connections entry to see your connected assistants, their
 read/write access, and revoke access. The list refreshes after consent and only
 shows your grants for the selected organization. The legacy

@@ -81,7 +81,7 @@ export async function runPublicMcpInvitationFlow(input: Parameters<typeof runPub
     if (decided) throw new Error("The human decision was already recorded.");
     decided = true;
     await page.goto(verificationUrl);
-    await expect(page.getByRole("heading", { name: "Connect your assistant to Paperclip" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^Connect .+ to Paperclip$/ })).toBeVisible();
     await expect(page.getByText(team.name, { exact: true })).toBeVisible();
     await page.getByRole("button", { name: denied ? "Cancel" : "Connect organization", exact: true }).click();
     await expect(page.getByRole("heading", { name: denied ? "Connection declined" : "Access approved" })).toBeVisible();
