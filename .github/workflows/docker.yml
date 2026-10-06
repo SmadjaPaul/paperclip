@@ -208,7 +208,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/smadjapaul/paperclip
           tags: |
             type=raw,value=nightly,enable=${{ startsWith(github.ref, 'refs/tags/nightly/v') }}
             type=raw,value=beta,enable=${{ startsWith(github.ref, 'refs/tags/beta/v') }}
@@ -326,7 +326,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/smadjapaul/paperclip
           tags: |
             type=raw,value=nightly,enable=${{ startsWith(github.ref, 'refs/tags/nightly/v') }}
             type=raw,value=beta,enable=${{ startsWith(github.ref, 'refs/tags/beta/v') }}
