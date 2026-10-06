@@ -70,7 +70,7 @@ it("identifies the receiving app and registered callback origin before approval"
     await vi.waitFor(() => expect(page.container.querySelector("h1")?.textContent).toBe("Connect Claude to Paperclip"));
     expect(page.container.textContent).toContain("https://claude.ai");
     expect(page.container.textContent).toContain("https://assistant.example.test");
-    expect(page.container.querySelector('img[src="https://assistant.example.test/favicon.ico"]')?.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(page.container.querySelector('img[src^="https://assistant.example.test"]')).toBeNull();
     expect(page.container.textContent).not.toContain("Access for");
     expect(page.container.querySelector('img[src="/brands/claude-color.svg"]')).not.toBeNull();
     expect(page.container.querySelector('a[href="https://my.paperclip.app/orgs/new"]')).toBeNull();
@@ -178,5 +178,19 @@ it("denies without granting the default write permission", async () => {
     await vi.waitFor(() => expect(page.checkbox()?.getAttribute("aria-checked")).toBe("true"));
     flushSync(() => Array.from(page.container.querySelectorAll("button")).find(button => button.textContent === "Cancel")!.click());
     await vi.waitFor(() => expect(api.post).toHaveBeenCalledWith("/mcp/requests/request-one/consent", { decision: "deny", companyId: "company-one", allowWrites: false }));
+  } finally { page.cleanup(); }
+});
+
+
+it("does not fetch client-selected favicons or trust names for branding", async () => {
+  route.clientName = "Claude";
+  route.clientOrigin = "https://unrecognized.example.test";
+  const page = setup();
+  try {
+    await vi.waitFor(() => expect(page.container.textContent).toContain(route.clientOrigin));
+    expect(page.container.textContent).toContain("https://assistant.example.test");
+    expect(page.container.querySelector('img[src^="https://"]')).toBeNull();
+    expect(page.container.querySelector('img[src="/brands/claude-color.svg"]')).toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
   } finally { page.cleanup(); }
 });

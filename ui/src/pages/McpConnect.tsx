@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { CompanyPatternIcon } from "@/components/CompanyPatternIcon";
 import { api } from "../api/client";
 
-// Use bundled icons for known origins; client-supplied names never select branding.
+// Bundle known-origin icons so opening consent never contacts a client-selected site.
+// Client-supplied names never select branding.
 function ClientOrigin({ origin }: { origin: string }) {
   const [failed, setFailed] = useState(false);
   let favicon: string | undefined;
@@ -18,7 +19,6 @@ function ClientOrigin({ origin }: { origin: string }) {
     const url = new URL(origin);
     if (url.origin === "https://claude.ai") favicon = "/brands/claude-color.svg";
     else if (["https://chatgpt.com", "https://chat.openai.com", "https://openai.com"].includes(url.origin)) favicon = "/brands/codex-color.svg";
-    else if (url.protocol === "https:" && !url.username && !url.password) favicon = new URL("/favicon.ico", url.origin).href;
   } catch { /* An unavailable origin keeps the neutral site icon. */ }
   return <div className="flex items-center gap-2 text-sm text-muted-foreground">
     {favicon && !failed ? <img src={favicon} alt="" className="size-4 shrink-0 object-contain" referrerPolicy="no-referrer" crossOrigin="anonymous" onError={() => setFailed(true)} /> : <Globe className="size-4 shrink-0" aria-hidden="true" />}
