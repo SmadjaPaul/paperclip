@@ -163,6 +163,18 @@ async function makeCtx(runId: string, cwd: string): Promise<AdapterExecutionCont
 }
 
 describe("grok_local execute", () => {
+  it.each([false, true])("resumes a managed connection only when its isolated history exists (%s)", async present => {
+    const root = await makeTempRoot();
+    const ctx = await makeCtx("managed-resume", root);
+    ctx.config.managedAiConnection = true;
+    ctx.config.env = { GROK_HOME: path.join(root, "home"), XAI_API_KEY: "fixture-key" };
+    ctx.runtime.sessionParams = { sessionId: "fixture-session", cwd: root };
+    if (present) await fs.mkdir(path.join(root, "home", "sessions", "encoded-cwd", "fixture-session"), { recursive: true });
+    runProcessMock.mockResolvedValue(makeSuccessfulRunResult({ sessionId: "next-session" }));
+    const result = await execute(ctx);
+    expect((runProcessMock.mock.calls[0][3] as string[]).includes("--resume")).toBe(present);
+    expect(result.sessionParams?.sessionId).toBe("next-session");
+  });
   it("resumes the conversation while rotating runtime tool access", async () => {
     const root = await makeTempRoot();
     runProcessMock.mockResolvedValue(makeSuccessfulRunResult({ sessionId: "existing-session" }));

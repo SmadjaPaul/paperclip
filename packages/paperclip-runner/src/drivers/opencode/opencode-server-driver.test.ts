@@ -5,8 +5,10 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -804,7 +806,7 @@ describe("OpenCodeServerDriver", () => {
     );
     expect(config).toContain("openrouter/deepseek/deepseek-v4-flash-0731");
     expect(config).toContain('"*": "allow"');
-    expect(config).toContain('"external_directory": "deny"');
+    expect(JSON.parse(config).permission.external_directory).toMatchObject({ "*": "deny", [`${workspace}/**`]: "allow" });
     expect(
       events.some((event) => event.eventType === "runtime_request.created"),
     ).toBe(false);
@@ -1337,8 +1339,10 @@ describe("OpenCodeServerDriver", () => {
     }
     expect(submittedPrompt).toMatchObject({
       system: systemInstructions,
-      tools: { question: true },
     });
+    // A prompt tools map replaces OpenCode's session permissions. Question is
+    // enabled in config without overwriting the allow/ask/deny or path policy.
+    expect(submittedPrompt).not.toHaveProperty("tools");
     expect(JSON.stringify(submittedPrompt?.parts ?? null)).not.toContain(
       PAPERCLIP_EXECUTION_PROMPT,
     );
@@ -1436,7 +1440,6 @@ describe("OpenCodeServerDriver", () => {
     expect(submittedPrompt).toMatchObject({
       providerID: "openrouter",
       modelID: "deepseek/deepseek-v4-flash-0731",
-      tools: { question: true },
       parts: [
         {
           type: "text",
@@ -1444,6 +1447,7 @@ describe("OpenCodeServerDriver", () => {
         },
       ],
     });
+    expect(submittedPrompt).not.toHaveProperty("tools");
     expect(submittedPrompt).not.toHaveProperty("system");
     await recovered!.session!.close({ reason: "recovery-test" });
   });
@@ -1831,7 +1835,7 @@ describe("OpenCodeServerDriver", () => {
       );
       expect(config.permission).toMatchObject({
         "*": permissionMode,
-        external_directory: "deny",
+        external_directory: { "*": "deny", [`${workspace}/**`]: "allow" },
       });
       expect(config.provider.openrouter.models).toHaveProperty(
         "deepseek/deepseek-v4-flash-0731",
@@ -1841,6 +1845,35 @@ describe("OpenCodeServerDriver", () => {
       await session.close({ reason: "permission mode test complete" });
     },
   );
+
+  it.skipIf(process.platform === "win32")("allows the selected workspace alias and its canonical path while denying other directories", async () => {
+    await chmod(fixture, 0o755);
+    const root = await mkdtemp(join(tmpdir(), "paperclip-opencode-workspace-alias-"));
+    roots.push(root);
+    const workspace = join(root, "actual-workspace");
+    const alias = join(root, "workspace-alias");
+    await mkdir(workspace);
+    await symlink(workspace, alias, "dir");
+    const canonical = await realpath(workspace);
+    const driver = new OpenCodeServerDriver({
+      model: "openrouter/deepseek/deepseek-v4-flash-0731",
+      permissionMode: "allow",
+      runtimeDirectory: root,
+      command: fixture,
+      environment: { PATH: process.env.PATH, OPENROUTER_API_KEY: "fixture-key" },
+    });
+    const session = await driver.openSession({
+      runId: "run-workspace-alias", normalizedSessionId: "alias-session",
+      workingDirectory: alias,
+    });
+    try {
+      const config = JSON.parse(await readFile(join(root, "alias-session", "config", "opencode", "opencode.json"), "utf8"));
+      expect(config.permission.external_directory).toEqual({
+        "*": "deny", [alias]: "allow", [`${alias}/**`]: "allow",
+        [canonical]: "allow", [`${canonical}/**`]: "allow",
+      });
+    } finally { await session.close({ reason: "workspace alias test complete" }); }
+  });
 
   it("clears a stale active turn that already has a persisted terminal fingerprint", async () => {
     await chmod(fixture, 0o755);

@@ -721,7 +721,7 @@ function Setup({
                         center
                       />
                     </div>
-                    <AgentProviderConnection
+                    {ready ? <AgentProviderConnection
                       key={environmentId ?? "local"}
                       companyId={companyId}
                       adapterType={connectionAdapter}
@@ -769,7 +769,7 @@ function Setup({
                         resetTest();
                         setScreen("runtime");
                       }}
-                    />
+                    /> : <p role="status" className="text-sm text-muted-foreground">Loading connection settings…</p>}
                   </OnboardingCard>
                 ) : screen === "saved" && created ? (
                   <div className="space-y-6">

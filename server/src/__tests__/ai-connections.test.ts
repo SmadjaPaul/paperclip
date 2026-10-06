@@ -4,7 +4,7 @@ import { issueRecoveryActionService } from "../services/issue-recovery-actions.j
 import * as localCredentials from "../services/local-ai-credentials.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, realpath, rm, access, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdtemp, realpath, rm, access, readFile, writeFile, stat, readlink, readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";
@@ -50,6 +50,30 @@ beforeAll(async () => {
 afterAll(async () => { await database?.cleanup(); vi.unstubAllEnvs(); if (home) await rm(home, { recursive: true, force: true }); });
 
 describe("managed AI connections", () => {
+  it("retains only Grok sessions across private runtime homes and isolates agents and accounts", async () => {
+    const save = (name: string) => service.save(companyId, "alice", { provider: "xai", method: "api_key", ownership: "personal", name, agentIds: [], allAgents: true }, `fixture-${name}`);
+    const account = await save("Grok history");
+    const other = await save("Other Grok history");
+    const runInput = { ...input, adapterType: "grok_local", responsibleUserId: "alice", config: {}, binding: { provider: "xai", method: "api_key", mode: "connection", connectionId: account.connectionId, grantId: account.grantId } as const };
+    const first = await prepareManagedAiRuntime(db, runInput);
+    const sessions = await readlink(path.join(String(first.config.env.GROK_HOME), "sessions"));
+    await writeFile(path.join(sessions, "history.json"), '{"fixture":"history"}', { mode: 0o600 });
+    await writeFile(path.join(String(first.config.env.GROK_HOME), "auth.json"), "disposable-auth", { mode: 0o600 });
+    await first.cleanup();
+    await expect(access(first.home!)).rejects.toThrow();
+    expect(await readdir(sessions)).toEqual(["history.json"]);
+    expect((await stat(sessions)).mode & 0o777).toBe(0o700);
+    const resumed = await prepareManagedAiRuntime(db, runInput);
+    const otherAgent = await prepareManagedAiRuntime(db, { ...runInput, agentId: randomUUID() });
+    const otherAccount = await prepareManagedAiRuntime(db, { ...runInput, binding: { ...runInput.binding, connectionId: other.connectionId, grantId: other.grantId } });
+    try {
+      expect(resumed.home).not.toBe(first.home);
+      expect(await readlink(path.join(String(resumed.config.env.GROK_HOME), "sessions"))).toBe(sessions);
+      expect(await readlink(path.join(String(otherAgent.config.env.GROK_HOME), "sessions"))).not.toBe(sessions);
+      expect(await readlink(path.join(String(otherAccount.config.env.GROK_HOME), "sessions"))).not.toBe(sessions);
+      await expect(access(path.join(String(resumed.config.env.GROK_HOME), "auth.json"))).rejects.toThrow();
+    } finally { await Promise.all([resumed.cleanup(), otherAgent.cleanup(), otherAccount.cleanup()]); }
+  });
   it("authenticates local Gemini probes and runs with the saved key in an isolated home", async () => {
     const root = await mkdtemp(path.join(home, "gemini-auth-"));
     const command = path.join(root, "gemini");
@@ -103,7 +127,7 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
       provider: "google", method: "api_key", ownership: "personal", name: "Google migration",
       apiKey: "fixture", allAgents: true, agentIds: [],
     }, "google-migration-key");
-    const migration = await readFile(new URL("../../../packages/db/src/migrations/0295_absurd_starhawk.sql", import.meta.url), "utf8");
+    const migration = await readFile(new URL("../../../packages/db/src/migrations/0300_absurd_starhawk.sql", import.meta.url), "utf8");
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await db.transaction(async (tx) => {
         for (const statement of migration.split("--> statement-breakpoint")) {

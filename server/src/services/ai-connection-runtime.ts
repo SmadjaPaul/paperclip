@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { HttpError, unprocessable } from "../errors.js";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, symlink, writeFile, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { and, eq } from "drizzle-orm";
@@ -17,6 +17,7 @@ import { decideCodexAuthMerge } from "@paperclipai/adapter-codex-local/server";
 import type { AdapterExecutionTarget } from "@paperclipai/adapter-utils/execution-target";
 import { runAdapterExecutionTargetProcess } from "@paperclipai/adapter-utils/execution-target";
 import { decideGrokAuthMerge } from "@paperclipai/adapter-grok-local/server";
+import { resolvePaperclipInstanceRootForAdapter } from "@paperclipai/adapter-utils/server-utils";
 
 export function isAiConnectionBusy(error: unknown): error is HttpError {
   return error instanceof HttpError && error.status === 422 &&
@@ -339,6 +340,17 @@ export async function prepareManagedAiRuntime(
       .slice(0, 16);
     const identity = `${selection.grant.id}:${input.responsibleUserId ?? "shared"}:${generation}`;
     const sessionIdentity = `${selection.grant.id}:${input.responsibleUserId ?? "shared"}:${credentialRef.secretId}:${freshness.epoch}`;
+    if (input.adapterType === "grok_local") {
+      // Retain only transcripts across disposable credential homes. Scope them
+      // to the company, agent and credential identity, including rotations.
+      // Removing the runtime home removes the link, never its private target.
+      const scope = createHash("sha256")
+        .update(JSON.stringify([input.companyId, input.agentId, sessionIdentity]))
+        .digest("hex");
+      const sessions = path.join(resolvePaperclipInstanceRootForAdapter(), "companies", input.companyId, "grok-sessions", scope);
+      await mkdir(sessions, { recursive: true, mode: 0o700 });
+      await symlink(sessions, path.join(providerHome, "sessions"), "dir");
+    }
     return {
       sessionIdentity,
       config: {

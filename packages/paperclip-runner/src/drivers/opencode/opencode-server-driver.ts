@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -611,10 +612,9 @@ class OpenCodeHarnessSession implements HarnessSession {
           // at this HTTP boundary.
           providerID,
           modelID,
-          // This exact OpenCode version passed the native-question conformance
-          // suite. question.asked is adapted into PRP v2 and its reply/reject API
-          // remains private to this driver.
-          tools: { question: true },
+          // Keep question enabled in the isolated config. OpenCode 1.18.32
+          // turns a prompt's deprecated `tools` map into replacement session
+          // permissions, so a sparse override here discards the session policy.
           ...(this.#sendFullContext
             ? { system: this.#systemInstructions }
             : {}),
@@ -2032,6 +2032,15 @@ async function startRuntime(input: {
   input.trace?.addSensitiveValues(sensitiveValues);
   const instructionRoot =
     input.options.runtimeContext?.instructions.bundle.rootPath;
+  // OpenCode canonicalizes tool paths (for example /var -> /private/var on
+  // macOS). Permit the assigned workspace under either spelling; operations
+  // within it still obey the selected allow/ask/deny permission mode.
+  const externalDirectories: Record<string, string> = { "*": "deny" };
+  for (const root of new Set([input.cwd, await realpath(input.cwd)])) {
+    externalDirectories[root] = "allow";
+    externalDirectories[`${root}/**`] = "allow";
+  }
+  if (instructionRoot) externalDirectories[`${instructionRoot}/**`] = "allow";
   const [modelProvider, ...modelIdParts] = input.options.model.split("/");
   const providerModelId = modelIdParts.join("/");
   const config = {
@@ -2069,9 +2078,7 @@ async function startRuntime(input: {
       question: "allow",
       "paperclip_*": "allow",
       "mcp__paperclip__*": "allow",
-      external_directory: instructionRoot
-        ? { "*": "deny", [`${instructionRoot}/**`]: "allow" }
-        : "deny",
+      external_directory: externalDirectories,
     },
     mcp: {
       paperclip: {

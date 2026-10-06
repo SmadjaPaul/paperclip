@@ -3,7 +3,30 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { GROK_SYNC_ALLOWLIST, stageGrokHomeForSync } from "./grok-home.js";
+import { GROK_SYNC_ALLOWLIST, grokHomeHasSession, stageGrokHomeForSync } from "./grok-home.js";
+
+describe("grokHomeHasSession", () => {
+  it.skipIf(process.platform === "win32")("finds private linked history without following descendant links or accepting traversal", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-grok-history-"));
+    try {
+      const home = path.join(root, "home");
+      const sessions = path.join(root, "private-sessions");
+      const sessionId = "fixture-session";
+      const session = path.join(sessions, "encoded-workspace", sessionId);
+      await fs.mkdir(home);
+      await fs.mkdir(session, { recursive: true });
+      await fs.symlink(sessions, path.join(home, "sessions"), "dir");
+      expect(await grokHomeHasSession(home, sessionId)).toBe(true);
+      expect(await grokHomeHasSession(home, "missing-session")).toBe(false);
+      expect(await grokHomeHasSession(home, "../../private-sessions")).toBe(false);
+      await fs.rm(session, { recursive: true });
+      const outside = path.join(root, "outside", sessionId);
+      await fs.mkdir(outside, { recursive: true });
+      await fs.symlink(path.dirname(outside), path.join(sessions, "outside-link"), "dir");
+      expect(await grokHomeHasSession(home, sessionId)).toBe(false);
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+});
 
 describe("GROK_SYNC_ALLOWLIST", () => {
   it("holds exactly one name: auth.json", () => {

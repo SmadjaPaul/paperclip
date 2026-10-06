@@ -1,5 +1,5 @@
 diff --git a/dist/live-checkpoint-ClPCSdrW.js b/dist/live-checkpoint-ClPCSdrW.js
-index 243c9d13bcba520923b63adfddad75cf2d94362d..e2a254d4e57fb2e246ccb742f2e9de5a8a461d20 100644
+index 243c9d13bcba520923b63adfddad75cf2d94362d..b93d4b29edfce81c8eb3c769699712f490553506 100644
 --- a/dist/live-checkpoint-ClPCSdrW.js
 +++ b/dist/live-checkpoint-ClPCSdrW.js
 @@ -1532,7 +1532,7 @@ const ZED_TAG_KEYS = /* @__PURE__ */ new Set([
@@ -96,7 +96,17 @@ index 243c9d13bcba520923b63adfddad75cf2d94362d..e2a254d4e57fb2e246ccb742f2e9de5a
  		};
  	}
  	logAgentLaunch(plan) {
-@@ -6070,6 +6090,27 @@ async function withConnectedSession(options) {
+@@ -4729,6 +4749,9 @@ var AcpClient = class {
+ 			return await this.filesystem.readTextFile(params);
+ 		} catch (error) {
+ 			this.recordPermissionError(params.sessionId, error);
++			// Preserve missing-file semantics across JSON-RPC. Gemini checks for
++			// ENOENT before creating a new file; a generic Internal error hides it.
++			if (error && typeof error === "object" && error.code === "ENOENT") throw RequestError.resourceNotFound(params.path);
+ 			throw error;
+ 		}
+ 	}
+@@ -6070,6 +6093,27 @@ async function withConnectedSession(options) {
  //#region src/runtime/engine/prompt-turn.ts
  const SESSION_REPLY_IDLE_MS = 1e3;
  const SESSION_REPLY_DRAIN_TIMEOUT_MS = 5e3;
@@ -124,7 +134,7 @@ index 243c9d13bcba520923b63adfddad75cf2d94362d..e2a254d4e57fb2e246ccb742f2e9de5a
  async function runPromptTurn(params) {
  	try {
  		const promptPromise = params.client.prompt(params.sessionId, params.prompt);
-@@ -6079,6 +6120,20 @@ async function runPromptTurn(params) {
+@@ -6079,6 +6123,20 @@ async function runPromptTurn(params) {
  			idleMs: SESSION_REPLY_IDLE_MS,
  			timeoutMs: SESSION_REPLY_DRAIN_TIMEOUT_MS
  		}).catch(() => {});
