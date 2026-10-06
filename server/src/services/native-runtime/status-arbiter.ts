@@ -108,8 +108,8 @@ export function arbitrateNativeStatus(input: {
   governanceResolvedForRun?: boolean;
   externalChatResponseWaitAuthorization?:
     "authorized" | "revoked" | "not_applicable";
-  /** Server-verified accepted Cursor Plan request and normal provider terminal. */
-  cursorPlanWaitAuthorized?: boolean;
+  /** Server-verified accepted plan request and normal provider terminal. */
+  planWaitAuthorized?: boolean;
   boardResponseWaitAuthorized?: boolean;
   boardResponseWaitOrigin?: boolean;
   isConversation?: boolean;
@@ -457,7 +457,7 @@ export function arbitrateNativeStatus(input: {
     };
   }
   if (
-    input.cursorPlanWaitAuthorized === true &&
+    input.planWaitAuthorized === true &&
     input.assessment.reportedDisposition === "yielded" &&
     input.assessment.continuation?.kind === "response_wake"
   ) {

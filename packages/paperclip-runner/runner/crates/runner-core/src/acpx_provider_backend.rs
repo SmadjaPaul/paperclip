@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::acpx_provider_capabilities::{run_attachment_policy, RunAttachmentPolicy};
 use crate::acpx_provider_session::{
     AcpxPermissionMode, AcpxProviderRuntimePolicy, AcpxProviderSession, AcpxProviderSessionConfig,
     AcpxProviderSessionIdentity, AcpxTurnControlCapabilities,
@@ -1105,7 +1106,7 @@ impl AcpxCommandExecutor {
                 object.remove("aggregateDigest");
             }
         }
-        if descriptor.agent == "cursor" {
+        if run_attachment_policy(&descriptor.agent) == RunAttachmentPolicy::AuthenticatedRunGrants {
             // New runs rotate authenticated instruction text and registered
             // file-copy grants. Preserve mainline MCP refresh while comparing
             // every remaining context identity, including unknown policy fields.
@@ -1118,7 +1119,7 @@ impl AcpxCommandExecutor {
                 || descriptor.runtime_context != state.descriptor.runtime_context;
             if !compatible || (grants_changed && descriptor.run_id == state.descriptor.run_id) {
                 return Err(DurableRunnerError::invalid(
-                    "Cursor run.attach changed runtime context outside a new authenticated run",
+                    "ACPX run.attach changed runtime context outside a new authenticated run",
                 ));
             }
             durable_descriptor.instructions = previous_descriptor.instructions.clone();

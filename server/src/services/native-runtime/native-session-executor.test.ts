@@ -49,7 +49,7 @@ import {
   NativeSessionProtocolIntegrityError,
 } from "../../vendor/paperclip-runner/index.js";
 import * as issueServiceModule from "../issues.js";
-import { NativeCursorPermissionDeclinedError } from "./native-cursor-permission-decline.js";
+import { NativePermissionDeclinedError } from "./native-permission-decline.js";
 import {
   createNativeHarnessBackupStamp,
   verifyNativeHarnessBackupStamp,
@@ -7424,7 +7424,7 @@ describe("native warm session supervision", () => {
 describe("native session bounded recovery", () => {
   it("blocks a denied Cursor task and gives recovery to the operator without another provider attempt", async () => {
     const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
-    const failure = new NativeCursorPermissionDeclinedError();
+    const failure = new NativePermissionDeclinedError();
     state.execute.mockReset().mockRejectedValueOnce(failure);
     state.upsertRecoveryAction.mockReset().mockResolvedValue({});
     const updateIssue = vi.fn(async () => ({ status: "blocked", statusVersion: 7 }));
@@ -7450,7 +7450,7 @@ describe("native session bounded recovery", () => {
         schema: "paperclip.native-cancellation.v1", ...execution.binding, scope: "run", reasonCode: "cancellation_run_only",
         dispatched: true, dispatchState: "acknowledged", intentAuditId: "intent", acknowledgementAuditId: "ack",
       } });
-      throw failureKind === "permission-declined" ? new NativeCursorPermissionDeclinedError() : new Error("native_finalization_missing: session returned no semantic result");
+      throw failureKind === "permission-declined" ? new NativePermissionDeclinedError() : new Error("native_finalization_missing: session returned no semantic result");
     });
     state.upsertRecoveryAction.mockClear();
     await expect(executePaperclipNativeSession({

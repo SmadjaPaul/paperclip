@@ -1,4 +1,4 @@
-import type { CanonicalProviderEvent } from "../provider-events.js";
+import type { CanonicalProviderEvent } from "../../provider-events.js";
 
 const SUMMARY = "Cursor reported partial native counters. These observations are not authoritative token usage or billing cost.";
 const PROVENANCE = "Cursor native turnEnded observations; partial, unsummed, unverified counter semantics";

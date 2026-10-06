@@ -1,4 +1,4 @@
-import { cursorUsageNotice } from "./cursor-usage-notice.js";
+import { normalizeProviderNotice } from "../drivers/provider-notices.js";
 import { liveRunResultFeedback } from "./run-result-feedback.js";
 import { createHash, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
@@ -2759,15 +2759,14 @@ export class CapabilityLiveSession {
   async #handleNotification(notification: CodexRpcNotification): Promise<void> {
     const params = notification.params;
     if (notification.method === "paperclip/canonicalProviderEvent"
-      && params.eventType === "provider.notice.recorded"
-      && record(params.payload).category === "cursor_native_usage_observed") {
-      const notice = cursorUsageNotice(params, {
+      && params.eventType === "provider.notice.recorded") {
+      const notice = normalizeProviderNotice(params, {
         provider: this.#config.provider, agent: this.#config.acpxAgent,
         threadId: this.#providerThreadId, turnId: this.#activeTurnId,
       });
       if (notice && !this.#evidence.some(entry => entry.turnId === this.#activeTurnId
         && entry.kind === "provider_event" && entry.data.canonical === true
-        && record(entry.data.payload).category === "cursor_native_usage_observed")) {
+        && record(entry.data.payload).category === record(notice.payload).category)) {
         this.#appendEvidence("provider_event", this.#activeTurnId, {
           canonicalEventType: notice.eventType, itemId: notice.itemId, payload: notice.payload,
         });

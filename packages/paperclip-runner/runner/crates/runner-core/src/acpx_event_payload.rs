@@ -125,22 +125,12 @@ pub fn decode_acpx_event(
             validate_question_set(&question_set)?;
             let question_set = sanitize_question_set(question_set)?;
             let origin = optional_object(&event.payload, "origin", "input request origin")?;
+            // Native methods are interpreted by the provider adapter. This
+            // transport validates the opaque reference under the event scope.
             let tool_call_id = if event.payload.get("toolCallId").is_some() {
                 let id =
                     required_id_with_limit(&event.payload, "toolCallId", "input parent tool", 240)?;
-                if id.len() > 240
-                    || sanitize_value(&json!(id)) != json!(id)
-                    || origin
-                        .as_ref()
-                        .and_then(|v| v.get("provider"))
-                        .and_then(Value::as_str)
-                        != Some("cursor")
-                    || origin
-                        .as_ref()
-                        .and_then(|v| v.get("method"))
-                        .and_then(Value::as_str)
-                        != Some("cursor/create_plan")
-                {
+                if id.len() > 240 || sanitize_value(&json!(id)) != json!(id) {
                     return Err(LocalRunnerError::invalid(
                         "ACPX input parent tool identity is invalid",
                     ));

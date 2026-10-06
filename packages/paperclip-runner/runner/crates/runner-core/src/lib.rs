@@ -3,6 +3,7 @@
 pub mod acpx_event_payload;
 pub mod acpx_event_scope;
 pub mod acpx_provider_backend;
+mod acpx_provider_capabilities;
 pub mod acpx_provider_checkpoint;
 pub mod acpx_provider_session;
 pub mod acpx_provider_state;

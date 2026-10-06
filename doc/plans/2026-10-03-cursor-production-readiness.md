@@ -630,3 +630,33 @@ Historical live qualification, image, package and review identities above remain
 historical evidence and are not relabeled as certification of this new source.
 Release assembly must build matching daemon, sidecar and controller artifacts.
 Auto-merge is disabled while the updated boundary receives review.
+
+## Bounded provider-boundary cleanup (2026-10-06)
+
+The shared ACPX event decoder validates bounded parent-tool identities and the
+event's run/turn scope. Native RPC recognition stays in the Cursor adapter before
+sidecar emission. The runner's authenticated-run-grant attachment policy is now
+an explicit, runner-owned provider capability selected after pinned-profile
+validation. Cursor remains the only provider opted into that policy. Its identity,
+authority, pending-work and unknown-context-field checks are unchanged.
+
+The controller settles accepted plans and permission declines through a provider
+lifecycle adapter. Cursor owns the native method names, mode interpretation,
+accepted revision interpretation and qualified-profile recognition. Shared code
+owns committed event correlation, delivery acknowledgement, tool lifecycle,
+status arbitration, receipt hashes and recovery suppression. No other provider
+gains these settlement capabilities. New receipts use `native_plan_wait` and
+`planWait`; a separate read-only decoder retains exact committed Cursor receipts,
+including the earlier unbound-tool profile. Mixed or relabeled receipt formats
+are rejected. Legacy receipts cannot authorize new waits or implementation work.
+
+Historical profile-version compatibility now lives in provider metadata. The
+generic live-session handler delegates optional notice validation to a provider
+adapter. Cursor's partial counters retain their closed diagnostic format and
+never become measured usage or spend.
+
+Focused checks cover normal and historical plan-wait replay, tampering, foreign
+scope, unsupported adapters, permission declines, optional diagnostics and Rust
+event projection. No new paid provider cells are part of this bounded cleanup.
+Historical live results keep their original build identities; new release
+artifacts still require matching source and qualification.

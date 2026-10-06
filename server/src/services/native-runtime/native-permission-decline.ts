@@ -1,21 +1,24 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { heartbeatRunEvents, type Db } from "@paperclipai/db";
 import type { PrpEvent } from "../../vendor/paperclip-runner/index.js";
+import { nativeProviderLifecycle, type LifecycleRecord } from "./provider-lifecycle.js";
 
 const record = (value: unknown): Record<string, any> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 type Binding = { companyId: string; runId: string; agentId: string };
 const TYPES = ["runtime_request.created", "runtime_request.resolved", "runtime_request.cancelled", "runtime_request.expired", "turn.completed"];
 
-export class NativeCursorPermissionDeclinedError extends Error {
+export class NativePermissionDeclinedError extends Error {
   constructor() {
-    super("native_finalization_missing: session returned no semantic result; Cursor permission was declined; explicit direction is required");
-    this.name = "NativeCursorPermissionDeclinedError";
+    super("native_finalization_missing: session returned no semantic result; provider permission was declined; explicit direction is required");
+    this.name = "NativePermissionDeclinedError";
   }
 }
 
 /** A committed user denial fences automatic disposition recovery. It does not
  * claim the provider received the response or prove absence of file effects. */
-export function hasCompletedCursorPermissionDecline(rows: readonly unknown[], binding: Binding, terminal: PrpEvent): boolean {
+export function hasCompletedNativePermissionDecline(rows: readonly unknown[], binding: Binding, terminal: PrpEvent, provider: LifecycleRecord): boolean {
+  const adapter = nativeProviderLifecycle(provider);
+  if (!adapter) return false;
   if (terminal.eventType !== "turn.completed" || !terminal.turnId || !terminal.normalizedSessionId || !terminal.sourceInstanceId) return false;
   const selected = rows.map(record).map(row => ({ row, event: record(record(row.payload).prpEvent) })).filter(({ row, event }) =>
     row.companyId === binding.companyId && row.agentId === binding.agentId && row.runId === binding.runId
@@ -29,10 +32,9 @@ export function hasCompletedCursorPermissionDecline(rows: readonly unknown[], bi
   const end = terminals[0]!;
   return selected.some(created => {
     if (created.event.eventType !== "runtime_request.created") return false;
-    const request = record(record(created.event.payload).request), origin = record(request.origin);
+    const request = record(record(created.event.payload).request);
     if (request.type !== "permission" || request.status !== "pending" || !request.requestId || request.turnId !== terminal.turnId
-      || origin.provider !== "cursor" || origin.method !== "session/request_permission"
-      || !["acpx-runtime", "acpx-runtime-sidecar"].includes(origin.adapter)) return false;
+      || !adapter.isPermissionRequest(request)) return false;
     if (selected.filter(({ event }) => event.eventType === "runtime_request.created" && record(record(event.payload).request).requestId === request.requestId).length !== 1) return false;
     const outcomes = selected.filter(({ event }) => ["runtime_request.resolved", "runtime_request.cancelled", "runtime_request.expired"].includes(event.eventType)
       && record(event.payload).requestId === request.requestId);
@@ -45,7 +47,8 @@ export function hasCompletedCursorPermissionDecline(rows: readonly unknown[], bi
   });
 }
 
-export async function readCompletedCursorPermissionDecline(db: Db, binding: Binding, terminal: PrpEvent) {
+export async function readCompletedNativePermissionDecline(db: Db, binding: Binding, terminal: PrpEvent, provider: LifecycleRecord) {
+  if (!nativeProviderLifecycle(provider)) return false;
   const rows = await db.select().from(heartbeatRunEvents).where(and(
     eq(heartbeatRunEvents.companyId, binding.companyId), eq(heartbeatRunEvents.runId, binding.runId), eq(heartbeatRunEvents.agentId, binding.agentId),
     sql`${heartbeatRunEvents.payload}->'prpEvent'->>'turnId' = ${terminal.turnId}`,
@@ -54,5 +57,5 @@ export async function readCompletedCursorPermissionDecline(db: Db, binding: Bind
     inArray(heartbeatRunEvents.eventType, TYPES),
   )).orderBy(asc(heartbeatRunEvents.seq)).limit(1001);
   if (rows.length > 1000) throw new Error("native_event_replay_conflict: permission recovery proof exceeds control-event budget");
-  return hasCompletedCursorPermissionDecline(rows, binding, terminal);
+  return hasCompletedNativePermissionDecline(rows, binding, terminal, provider);
 }

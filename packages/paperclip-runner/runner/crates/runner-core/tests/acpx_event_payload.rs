@@ -403,7 +403,7 @@ fn rejects_payloads_before_decoding_when_scope_or_size_is_invalid() {
 }
 
 #[test]
-fn native_plan_parent_tool_is_bounded_origin_scoped_and_not_redacted() {
+fn input_parent_tool_is_bounded_scope_checked_and_provider_neutral() {
     let input = json!({"requestId":"input-1","toolCallId":"tool with spaces",
         "questionSet":{"schema":"paperclip.question_set.v1","questions":[{"id":"q","prompt":"Proceed?","required":true,"answerMode":"text"}]},
         "origin":{"adapter":"acpx-runtime-sidecar","provider":"cursor","method":"cursor/create_plan"}});
@@ -432,10 +432,21 @@ fn native_plan_parent_tool_is_bounded_origin_scoped_and_not_redacted() {
         changed["toolCallId"] = bad;
         assert!(decode(changed).is_err());
     }
-    for (field, value) in [("provider", "copilot"), ("method", "cursor/ask_question")] {
+    // Vendor method recognition belongs to the adapter. Neither a provider name
+    // nor an RPC spelling changes how this scoped opaque reference is decoded.
+    for (field, value) in [("provider", "other-provider"), ("method", "other/plan")] {
         let mut changed = input.clone();
         changed["origin"][field] = json!(value);
-        assert!(decode(changed).is_err());
+        assert!(decode(changed).is_ok());
+    }
+    for (run, turn) in [("foreign-run", "turn-1"), ("run-1", "foreign-turn")] {
+        let mut scoped = event(
+            GeneratedAcpxSidecarEventType::RuntimeInputRequested,
+            input.clone(),
+        );
+        scoped.run_id = Some(run.to_owned());
+        scoped.turn_id = Some(turn.to_owned());
+        assert!(decode_acpx_event(&active_scope(), &scoped).is_err());
     }
     let mut legacy = input;
     legacy.as_object_mut().unwrap().remove("toolCallId");

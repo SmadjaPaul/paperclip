@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { Db } from "@paperclipai/db";
 import type { PrpEvent } from "../../vendor/paperclip-runner/index.js";
-import { hasCompletedCursorPermissionDecline, readCompletedCursorPermissionDecline } from "./native-cursor-permission-decline.js";
+import { hasCompletedNativePermissionDecline, readCompletedNativePermissionDecline } from "./native-permission-decline.js";
 
+const provider = { kind: "acpx", agent: "cursor" };
 const binding = { companyId: "company", runId: "run", agentId: "agent" };
 function row(seq: number, eventType: string, payload: unknown): any {
   const event = { schema: "paperclip.prp.event.v1", schemaVersion: 1, sourceKind: "runner", runId: "run", turnId: "turn",
@@ -18,8 +19,15 @@ function facts() {
   return { rows: [created, resolved, completed], terminal: structuredClone(completed.payload.prpEvent) as PrpEvent };
 }
 describe("completed Cursor permission decline", () => {
+  it.each([
+    { kind: "codex" }, { kind: "acpx", agent: "claude" },
+    { kind: "acpx", agent: "unknown" }, { kind: "acpx", agent: "toString" },
+  ])("does not apply an unqualified provider's recovery policy: %j", otherProvider => {
+    const f = facts();
+    expect(hasCompletedNativePermissionDecline(f.rows, binding, f.terminal, otherProvider)).toBe(false);
+  });
   it("fences a committed denial without treating it as semantic success or requiring provider billing", () => {
-    const f = facts(); expect(hasCompletedCursorPermissionDecline(f.rows, binding, f.terminal)).toBe(true);
+    const f = facts(); expect(hasCompletedNativePermissionDecline(f.rows, binding, f.terminal, provider)).toBe(true);
   });
   it.each(["company", "agent", "run", "turn", "session", "source", "provider", "method", "accept", "expired", "duplicate", "order", "terminal"])("rejects %s mismatches and ambiguous proof", mutation => {
     const f = facts(), created = f.rows[0], resolved = f.rows[1];
@@ -36,7 +44,7 @@ describe("completed Cursor permission decline", () => {
     if (mutation === "duplicate") f.rows.push(structuredClone(resolved));
     if (mutation === "order") resolved.seq = 4;
     if (mutation === "terminal") f.terminal.sourceEventId = "foreign";
-    expect(hasCompletedCursorPermissionDecline(f.rows, binding, f.terminal)).toBe(false);
+    expect(hasCompletedNativePermissionDecline(f.rows, binding, f.terminal, provider)).toBe(false);
   });
 });
 
@@ -51,7 +59,7 @@ function readerDb(rows: unknown[]) {
 describe("permission decline reader event budget", () => {
   it("scopes the database read to the terminal turn and runner before limiting events", async () => {
     const f = facts(), { db, query } = readerDb(f.rows);
-    expect(await readCompletedCursorPermissionDecline(db, binding, f.terminal)).toBe(true);
+    expect(await readCompletedNativePermissionDecline(db, binding, f.terminal, provider)).toBe(true);
     const predicate = new PgDialect().sqlToQuery(query.where.mock.calls[0]![0]);
     expect(predicate.sql).toContain("->'prpEvent'->>'turnId'");
     expect(predicate.sql).toContain("->'prpEvent'->>'normalizedSessionId'");
@@ -62,6 +70,6 @@ describe("permission decline reader event budget", () => {
   });
   it("fails closed if this same turn exceeds its control-event budget", async () => {
     const f = facts(), { db } = readerDb(Array.from({ length: 1001 }, () => f.rows[0]));
-    await expect(readCompletedCursorPermissionDecline(db, binding, f.terminal)).rejects.toThrow("exceeds control-event budget");
+    await expect(readCompletedNativePermissionDecline(db, binding, f.terminal, provider)).rejects.toThrow("exceeds control-event budget");
   });
 });

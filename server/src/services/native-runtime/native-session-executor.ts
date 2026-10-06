@@ -1,8 +1,9 @@
 import { isProviderMode } from "../../vendor/paperclip-runner/index.js";
 import { bundledRemoteProviderPackManifestPath, bundledRemoteRunnerBinary } from "../../vendor/paperclip-runner/index.js";
 import { nativeRetryCancellationEligible, rethrowNativeCancellationLockConflict, assertCancellationRequest, cancellationIntentId as callerCancellationIntentId, cancellationRequestId } from "./native-cancellation-request.js";
-import { readNativeCursorPlanWait } from "./native-cursor-plan-wait.js";
-import { NativeCursorPermissionDeclinedError, readCompletedCursorPermissionDecline } from "./native-cursor-permission-decline.js";
+import { readNativePlanWait } from "./native-plan-wait.js";
+import { nativeProviderLifecycle } from "./provider-lifecycle.js";
+import { NativePermissionDeclinedError, readCompletedNativePermissionDecline } from "./native-permission-decline.js";
 import { resolveAcpxQualification } from "./acpx-qualification.js";
 import { readLocalAiCredentialFile } from "../local-ai-credential-file.js";
 import { prepareGrokRunnerCredentials } from "./grok-runner-credentials.js";
@@ -6127,7 +6128,7 @@ export function nativeSessionFailureSourceCode(
   | "native_current_wake_comments_unread"
   | "native_current_wake_comments_changed_after_read"
   | "native_session_interrupted" {
-  if (error instanceof NativeCursorPermissionDeclinedError) return "native_permission_declined";
+  if (error instanceof NativePermissionDeclinedError) return "native_permission_declined";
   if (error instanceof NativeProviderTerminalFailure) {
     if (error.providerCode === "approval_required") return "native_provider_approval_required";
     // Failed terminals retain their security meaning across the provider facade.
@@ -8438,13 +8439,12 @@ async function executePaperclipNativeSessionWithinScope(
               if (terminalEvent.eventType !== "turn.completed") return null;
               const governedWait = await resolvePendingGovernedWait();
               if (governedWait) return governedWait;
-              if (input.execution.provider.kind === "acpx" && input.execution.provider.agent === "cursor" && input.execution.provider.mode === "plan") {
-                const planWait = await readNativeCursorPlanWait(input.db, input.execution.binding);
+              if (nativeProviderLifecycle(input.execution.provider)?.planWait) {
+                const planWait = await readNativePlanWait(input.db, input.execution.binding);
                 if (planWait?.source.terminalEventId === terminalEvent.sourceEventId) return planWait.result;
               }
-              if (input.execution.provider.kind === "acpx" && input.execution.provider.agent === "cursor"
-                && await readCompletedCursorPermissionDecline(input.db, input.execution.binding, terminalEvent)) {
-                throw new NativeCursorPermissionDeclinedError();
+              if (await readCompletedNativePermissionDecline(input.db, input.execution.binding, terminalEvent, input.execution.provider)) {
+                throw new NativePermissionDeclinedError();
               }
               const [conversation] = await input.db
                 .select({ agentId: issues.conversationAgentId })
@@ -8752,7 +8752,7 @@ async function executePaperclipNativeSessionWithinScope(
       // another turn to perform completion bookkeeping.
       const stoppedBeforeFirstTurn = error instanceof Error && error.message === "native_session_cancelled";
       if (protocolIntegrityFailure === null && error instanceof Error &&
-          (stoppedBeforeFirstTurn || error instanceof NativeCursorPermissionDeclinedError || error.message === "native_finalization_missing: session returned no semantic result")) {
+          (stoppedBeforeFirstTurn || error instanceof NativePermissionDeclinedError || error.message === "native_finalization_missing: session returned no semantic result")) {
         const [stoppedRun] = await input.db.select().from(heartbeatRuns).where(and(
           eq(heartbeatRuns.id, input.execution.binding.runId),
           eq(heartbeatRuns.companyId, input.execution.binding.companyId),
@@ -8897,7 +8897,7 @@ async function executePaperclipNativeSessionWithinScope(
               recoveryOwner: recoveryProjection.recoveryOwner,
               nextAction:
                 sourceFailureCode === "native_permission_declined"
-                  ? "Cursor permission was declined. Inspect the task and give explicit direction before starting further provider work. Automatic recovery is stopped."
+                  ? "Provider permission was declined. Inspect the task and give explicit direction before starting further provider work. Automatic recovery is stopped."
                   : sourceFailureCode === "native_provider_approval_required"
                   ? "Approval required. Review the operation and update the agent's permission setting before retrying. This runner has no interactive approval handler."
                   : sourceFailureCode === "native_session_cleanup_quarantined"
@@ -9074,7 +9074,7 @@ async function executePaperclipNativeSessionWithinScope(
           },
           nextAction:
             sourceFailureCode === "native_permission_declined"
-              ? "Cursor permission was declined. Inspect the task and give explicit direction before starting further provider work. Automatic recovery is stopped."
+              ? "Provider permission was declined. Inspect the task and give explicit direction before starting further provider work. Automatic recovery is stopped."
               : sourceFailureCode === "native_provider_approval_required"
               ? "Approval required. Review the operation and update the agent's permission setting before retrying. This runner has no interactive approval handler."
               : sourceFailureCode === "native_session_cleanup_quarantined"
