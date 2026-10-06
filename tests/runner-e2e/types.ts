@@ -5,6 +5,7 @@ export const CREDENTIAL_NAMES = [
   "KIMI_MODEL_API_KEY",
   "XAI_API_KEY",
   "GROK_AUTH_JSON",
+  "GEMINI_API_KEY",
   "DAYTONA_API_KEY",
   "CURSOR_AUTH_TOKEN",
   "COPILOT_GITHUB_TOKEN",
@@ -15,6 +16,7 @@ export type RunnerGeneration = "legacy" | "native";
 export type RunnerEnvironmentId = "local" | "daytona";
 export type RunnerTaskWorkMode = "standard" | "planning" | "ask";
 export type RunnerTaskFlow =
+  | "provider_connection"
   | "blocker_guidance"
   | "everyday_workflow"
   | "context_integrity"
@@ -323,6 +325,7 @@ export interface RunnerE2EResult {
     sha256?: string;
   }>;
   firstTask?: import("./first-task-scoring.js").FirstTaskEvidence;
+  providerConnection?: import("./connection-evidence.js").ConnectionEvidence;
   completionQuality?: import("./completion-quality.js").CompletionQualityRecord[];
   firstTaskQuality?: import("./first-task-quality.js").FirstTaskQuality;
   cleanup: "not_started" | "passed" | "failed";
