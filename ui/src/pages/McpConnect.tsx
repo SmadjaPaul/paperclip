@@ -104,7 +104,7 @@ function McpConnectRequest({ id, device = false, onEditCode }: { id: string; dev
           {consent.error && <p className="text-sm text-destructive">{consent.error.message}</p>}
           <div className="flex items-center justify-between gap-3">
             <Button variant="outline" disabled={consent.isPending} onClick={() => consent.mutate("deny")}>Cancel</Button>
-            <Button disabled={!company || consent.isPending} onClick={() => consent.mutate("approve")}>{consent.isPending ? "Connecting…" : "Connect organization"}</Button>
+            <Button className="h-auto min-h-10 min-w-0 shrink whitespace-normal" disabled={!company || consent.isPending} onClick={() => consent.mutate("approve")}>{consent.isPending ? "Connecting…" : "Connect organization"}</Button>
           </div>
         </>}
       </>}
