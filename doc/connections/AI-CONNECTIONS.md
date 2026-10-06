@@ -10,11 +10,6 @@ homes. Managed default/shared accounts are additional choices in that same
 selector. Selecting “Sign in to another account” survives background refreshes;
 Claude authorization paste keeps upstream's immediate Connecting feedback.
 
-New-agent Connect offers three persistent tiles: the provider's subscription,
-the provider's API key, and Advanced. All three stay visible while the selected
-mode's form is shown below. Advanced opens the existing compatible-connection
-picker and provider setup. Execution environment selection lives in Configure.
-
 Storybook's simulated controllers and page annotations do not run in the app.
 
 ## Compatibility and selection
@@ -384,8 +379,8 @@ onboarding, and agent setup share `LocalProviderLoginInstructions` and
 `useLocalAiLogin`. Claude and Codex start a local provider process behind the
 browser sign-in card. Claude accepts the authorization code in that card; Codex
 displays its device code there. The user does not run a shell command. Each
-local runner requires Python 3 for its pseudo-terminal (included in the Docker
-image) and the corresponding provider CLI on the Paperclip host. Each
+local runner requires Python 3 for its pseudo-terminal and the corresponding
+provider CLI on the Paperclip host. Each
 attempt retains a private credential home. The home is never seeded with the
 operator's existing login: copying a rotating refresh token would
 allow managed runs to invalidate credentials still used by legacy agents or the
@@ -516,24 +511,15 @@ fingerprint. These checks do not relax current connection authorization.
 
 ## Advanced provider routing (2026-10-02)
 
-Use the regular rows on **Connectors** to add OpenRouter, Amazon Bedrock,
-Google Gemini, a Responses API, Messages API, Chat Completions API, or local
-endpoint connection. Each row has its own Connect action and saved accounts.
-The catalog tags these entries `model-provider`; no category UI is shown.
-Responses-compatible gateways such as Emissary use the Responses API row.
-The native subscription/API-key onboarding remains the default. Provider choices
-show the existing local brand artwork and reuse the existing access step. Custom
-URLs, protocol, AWS region, and credential fields appear only after choosing the
-corresponding connector. New connections default to everyone in the organization
-and all agents when the actor has permission; the existing Advanced disclosure
-contains the controls to narrow access, without a separate Access step. New-agent setup also offers the connection picker under
-**Use another connection**.
+The connection API and catalog support OpenRouter, Amazon Bedrock, Google Gemini,
+Responses API, Messages API, Chat Completions API, and local endpoints.
+The catalog tags these entries `model-provider`. Responses-compatible gateways
+such as Emissary use the Responses API definition.
 
-At **Agents → [agent] → Harness / Runtime**, **Connection** is a dropdown of
-compatible saved connections, including explicit personal accounts. The existing
-model picker uses that connection’s optional model IDs and accepts manual IDs.
-Changing connections preserves the model for explicit review. URLs and
-credentials belong to the connection; the model belongs to the agent.
+Provider routing belongs to the connection; the model belongs to the agent.
+The API exposes compatible saved connections and optional model identifiers.
+The advanced setup UI and review stories ship in the follow-up UI change.
+Native subscription and API-key setup keep their existing controls.
 
 | Harness | Implemented managed routes |
 | --- | --- |
@@ -543,7 +529,7 @@ credentials belong to the connection; the model belongs to the agent.
 | Hermes local | OpenRouter; custom/local Chat Completions |
 | Gemini CLI, Grok | Their native API connections; custom routes are not advertised |
 
-Migration `0295` adds Google to both account-default provider constraints. Local
+Migration `0300` adds Google to both account-default provider constraints. Local
 Gemini connections seed the API-key auth choice in their disposable home before
 environment probes and task execution. The settings file contains no credential.
 
@@ -555,10 +541,9 @@ catalog discovery for custom gateways are not part of this implementation.
 
 OpenRouter connections without an explicit model list automatically load its public
 [model catalog](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties),
-ordered with `sort=most-popular`. New-agent setup and agent settings share this
-discovery path, preserve the provider's ordering, and adapt model IDs to the selected
-harness. Explicit connection model lists take precedence. Catalog discovery sends
-no credentials; a failed request offers refresh and manual model entry.
+ordered with `sort=most-popular`. The company-scoped model discovery API preserves
+the provider's ordering and adapts model IDs to the selected harness. Explicit
+connection model lists take precedence. Catalog discovery sends no credentials.
 
 `config.ai.routing` stores only kind, protocol, URL, auth method, region, and
 optional model IDs/labels. The vault stores provider API keys, including Bedrock API keys.

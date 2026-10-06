@@ -74,7 +74,7 @@ function SubscriptionConnectionStep({ companyId, provider, initialMethod, fixedM
   const canLogin = environment?.driver === "sandbox" && caps.data?.sandboxProviders?.[sandboxProvider]?.supportsLoginPty === true;
   const loading = [envs, caps, settings, experimental, general].some((query) => query.isPending);
   const error = environmentError ?? [envs, caps, settings, experimental, general].find((query) => query.error)?.error?.message;
-  const intent: AiConnectionLoginIntent = { provider, method: "subscription", name, ownership, agentIds, allAgents, connectionId };
+  const intent: AiConnectionLoginIntent = { provider: provider as AiConnectionLoginIntent["provider"], method: "subscription", name, ownership, agentIds, allAgents, connectionId };
   return <div className="mx-auto w-full min-w-0 max-w-xl space-y-6">
     {!hideName && <label className="block space-y-2 text-sm">Connection name<Input value={name} onChange={(event) => setName(event.target.value)} disabled={Boolean(connectionId)} /></label>}
     {!suppliedEnvironmentId && !forced.forced && loginEnvironments.length > 1 && <Select value={environmentId ?? ""} onValueChange={setChosenEnvironment}>
