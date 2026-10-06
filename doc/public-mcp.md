@@ -46,8 +46,10 @@ is selected or impersonated. The entry is discoverable while disabled, but its
 setup instructions require the experimental setting. Follow **Open Experimental
 settings**, enable **Assistant connections (MCP)**, then return to setup.
 
-Click **Copy invitation** and paste the message into your assistant. **Copy link**
-copies the same public setup URL. The link contains an optional organization ID,
+Click **Copy invitation** to copy the message and preview it in the shared animated
+setup prompt, then paste it into your assistant. Client-specific instructions are
+under **Set up manually**, in the icon-labeled tab bar. The invitation’s public
+setup link contains an optional organization ID,
 never a credential. It does not reveal the organization before sign-in or grant
 access. Approval happens when the assistant starts its connection. The setup page
 is server-rendered at `/mcp/setup`; `/mcp/setup.md` and `Accept: text/markdown`

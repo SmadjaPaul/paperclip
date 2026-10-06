@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AssistantConnection, AssistantConnectionCard } from "./AssistantConnection";
 const mocks = vi.hoisted(() => ({ setup: vi.fn(), connections: vi.fn(), revoke: vi.fn(), breadcrumbs: vi.fn(), copy: vi.fn() }));
+vi.mock("@/hooks/usePrefersReducedMotion", () => ({ usePrefersReducedMotion: () => true }));
 vi.mock("@/lib/clipboard", () => ({ copyTextToClipboard: mocks.copy }));
 vi.mock("@/api/publicMcp", () => ({ publicMcpApi: mocks }));
 vi.mock("@/context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "butter", selectedCompany: { id: "butter", name: "Butter", logoUrl: null } }) }));
@@ -30,12 +31,12 @@ describe("assistant setup from Connections", () => {
   it("copies a scoped instruction link with no credential and keeps manual configuration collapsed", async () => {
     await render();
     expect(container.querySelector("details")?.open).toBe(false);
-    await act(async () => Array.from(container.querySelectorAll("button")).find(b => b.textContent === "Copy invitation")!.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Copy invitation"]')!.click());
     expect(mocks.copy).toHaveBeenLastCalledWith(expect.stringContaining("https://canonical.example/mcp/setup?company=butter"));
     expect(mocks.copy).toHaveBeenLastCalledWith(expect.stringContaining("after I approve"));
-    expect(container.querySelector('[role="status"]')?.textContent).toBe("Invitation copied");
-    await act(async () => Array.from(container.querySelectorAll("button")).find(b => b.textContent === "Copy link")!.click());
-    expect(mocks.copy).toHaveBeenLastCalledWith("https://canonical.example/mcp/setup?company=butter");
+    expect(document.body.textContent).toContain("Copied to clipboard");
+    expect(container.textContent).not.toContain("Copy link");
+    expect(container.textContent).not.toContain("Open setup instructions");
     expect(mocks.revoke).not.toHaveBeenCalled();
   });
   it("surfaces catalog status failures and recovers without claiming there are no connections", async () => {
@@ -84,7 +85,7 @@ describe("assistant setup from Connections", () => {
     await act(async () => { await client.invalidateQueries({ queryKey: ["mcp-connections"] }); });
     await flush();
     expect(container.textContent).toContain("Connected as you · Read and write");
-    expect(container.querySelector('[aria-label="Copy first prompt"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Copy first prompt"]')).toBeNull();
   });
   it("shows a recoverable error instead of pretending setup succeeded", async () => {
     mocks.setup.mockRejectedValue(new Error("offline"));

@@ -61,7 +61,7 @@ export const InvitationCopied: Story = { ...OpenCodeSetup, play: async ({ canvas
   const c = within(canvasElement);
   const user = userEvent.setup({ document: canvasElement.ownerDocument });
   await user.click(await c.findByRole("button", { name: "Copy invitation" }));
-  await expect(await c.findByText("Invitation copied")).toBeVisible();
+  await expect(await within(canvasElement.ownerDocument.body).findByRole("button", { name: "Copied to clipboard" })).toBeVisible();
   await expect(await navigator.clipboard.readText()).toContain("/mcp/setup?company=");
 } };
 export const ManualSetup: Story = { ...OpenCodeSetup, play: async ({ canvasElement }) => { await userEvent.click(await within(canvasElement).findByText("Set up manually")); } };

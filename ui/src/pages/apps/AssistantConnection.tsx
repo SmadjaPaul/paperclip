@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { assistantClientNames, mcpAuthorizationHandoffInstructions, mcpInvitation, mcpSetupSteps, mcpSetupUrl, type AssistantClient } from "@paperclipai/shared";
+import { assistantClientNames, mcpAuthorizationHandoffInstructions, mcpInvitation, mcpSetupSteps, type AssistantClient } from "@paperclipai/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, ExternalLink, Paperclip } from "lucide-react";
+import { Check, Copy, ExternalLink, Globe, Paperclip, Plug, Terminal } from "lucide-react";
 import { publicMcpApi } from "@/api/publicMcp";
 import { ApiError } from "@/api/client";
 import { useCompany } from "@/context/CompanyContext";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { Link } from "@/lib/router";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { AgentSetupPrompt } from "@/components/AgentSetupPrompt";
+import { OpenCodeLogoIcon } from "@/components/OpenCodeLogoIcon";
 import { CompanyPatternIcon } from "@/components/CompanyPatternIcon";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,6 +18,13 @@ export const ASSISTANT_CONNECTION_PATH = "/apps/assistant-connection";
 const connectionsKey = ["mcp-connections"];
 type Assistant = AssistantClient;
 const assistants = assistantClientNames;
+
+function AssistantIcon({ assistant }: { assistant: Assistant }) {
+  if (assistant === "codex" || assistant === "claude") return <img src={`/brands/${assistant}-color.svg`} alt="" className="size-4 shrink-0" />;
+  if (assistant === "opencode") return <span aria-hidden="true" className="inline-flex shrink-0"><OpenCodeLogoIcon className="size-4" /></span>;
+  const Icon = assistant === "browser" ? Globe : assistant === "headless" ? Terminal : Plug;
+  return <Icon className="size-4" aria-hidden="true" />;
+}
 
 function useConnections(poll = false) {
   const { selectedCompanyId } = useCompany();
@@ -80,7 +89,6 @@ export function AssistantConnection({ initialAssistant = "codex" }: { initialAss
   const { selectedCompany, selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const client = useQueryClient();
-  const [copyResult, setCopyResult] = useState("");
   const [assistant, setAssistant] = useState<Assistant>(initialAssistant);
   const setup = useQuery({ queryKey: ["mcp-setup"], queryFn: publicMcpApi.setup, retry: false, refetchOnWindowFocus: "always", refetchOnMount: "always" });
   const connections = useConnections(setup.data?.enabled === true);
@@ -91,13 +99,7 @@ export function AssistantConnection({ initialAssistant = "codex" }: { initialAss
   }, [setBreadcrumbs]);
   if (!selectedCompanyId || !selectedCompany) return <p className="text-sm text-muted-foreground">Select an organization to connect an assistant.</p>;
   const serverUrl = setup.data?.serverUrl ?? "";
-  const invitationUrl = serverUrl ? mcpSetupUrl(serverUrl, selectedCompanyId) : "";
   const invitation = serverUrl ? mcpInvitation(serverUrl, { id: selectedCompanyId, name: selectedCompany.name }) : "";
-  async function copyInvitation(value: string, label: string) {
-    try { await copyTextToClipboard(value); setCopyResult(`${label} copied`); }
-    catch { setCopyResult("Couldn’t copy. Open setup instructions to copy the text."); }
-  }
-  const active = connections.rows.filter(row => !row.revokedAt);
   return <div className="max-w-3xl space-y-6 pb-8">
     <header className="space-y-4">
       <div className="flex items-center gap-3"><Paperclip className="size-7 shrink-0" /><h1 className="text-xl font-semibold">Assistant Connection (MCP)</h1></div>
@@ -115,17 +117,14 @@ export function AssistantConnection({ initialAssistant = "codex" }: { initialAss
     </section>}
     {setup.data?.enabled && <>
       <section className="space-y-4" aria-label="Invite your assistant">
-        <p className="text-sm text-muted-foreground">Paste an invitation into your assistant. It will help set up the connection and ask you to approve access in Paperclip.</p>
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <Button variant="outline" onClick={() => void copyInvitation(invitationUrl, "Link")}>Copy link</Button>
-          <Button onClick={() => void copyInvitation(invitation, "Invitation")}><Copy className="size-4" />Copy invitation</Button>
+        <p className="text-sm text-muted-foreground">Paste this invitation into your assistant. It will help set up the connection and ask you to approve access in Paperclip.</p>
+        <div className="flex justify-end">
+          <AgentSetupPrompt prompt={invitation} label="Copy invitation" title="Invite your assistant" description="Paste this invitation into your assistant. It will help set up the connection and ask you to approve access in Paperclip." side="bottom" align="end" />
         </div>
-        <p role="status" className="text-xs text-muted-foreground">{copyResult}</p>
-        <a className="inline-flex items-center gap-1 text-sm underline" href={invitationUrl} target="_blank" rel="noreferrer">Open setup instructions <ExternalLink className="size-3" /></a>
       </section>
       <details className="space-y-4 text-sm">
         <summary className="cursor-pointer text-muted-foreground">Set up manually</summary>
-        <Tabs value={assistant} onValueChange={value => setAssistant(value as Assistant)}><TabsList className="flex h-auto flex-wrap justify-start">{Object.entries(assistants).map(([value, name]) => <TabsTrigger key={value} value={value}>{name}</TabsTrigger>)}</TabsList></Tabs>
+        <Tabs value={assistant} onValueChange={value => setAssistant(value as Assistant)} className="min-w-0"><div className="overflow-x-auto overflow-y-hidden scrollbar-none border-b border-border"><TabsList variant="line" className="min-w-full justify-start" aria-label="Assistant setup instructions">{Object.entries(assistants).map(([value, name]) => <TabsTrigger key={value} value={value} className="flex-none"><AssistantIcon assistant={value as Assistant} />{name}</TabsTrigger>)}</TabsList></div></Tabs>
         <section className="space-y-4" aria-label={`Set up ${assistants[assistant]}`}>
           {mcpSetupSteps(serverUrl, assistant).map((step, index) => <div key={`${assistant}-${index}`} className="space-y-2"><p className="text-sm text-muted-foreground">{step.text}</p>{step.code && <CopyValue value={step.code} label={`${assistants[assistant]} setup step ${index + 1}`} />}</div>)}
           {assistant !== "browser" && <p className="text-sm text-muted-foreground">{mcpAuthorizationHandoffInstructions}</p>}
@@ -144,7 +143,6 @@ export function AssistantConnection({ initialAssistant = "codex" }: { initialAss
         <div className="space-y-1"><p className="text-sm font-medium">{row.clientName}</p><p className="text-xs text-muted-foreground">{row.revokedAt ? "Revoked" : `Connected as you · ${row.scopes.includes("paperclip:write") ? "Read and write" : "Read only"}`}</p></div>
         {!row.revokedAt && <Button variant="outline" size="sm" disabled={revoke.isPending} onClick={() => revoke.mutate(row.id)} aria-label={`Revoke ${row.clientName} connection`}>Revoke</Button>}
       </div>)}</div>
-      {active.length > 0 && <><p className="text-xs text-muted-foreground">Revoking stops future assistant calls. Work already delegated continues.</p>{setup.data?.enabled && <div className="space-y-2 pt-3"><h3 className="text-sm font-semibold">Try it in your assistant</h3><CopyValue value={`Show me the agents and open tasks in my ${selectedCompany.name} Paperclip organization.`} label="first prompt" /></div>}</>}
     </section>
     <footer className="flex items-center justify-between gap-3 border-t border-border pt-4"><Button variant="ghost" asChild><Link to="/apps">Back to Connections</Link></Button><a className="inline-flex items-center gap-1 text-xs text-muted-foreground underline" href={assistant === "opencode" ? "https://opencode.ai/docs/mcp-servers/" : assistant === "claude" ? "https://code.claude.com/docs/en/mcp" : "https://developers.openai.com/codex/mcp"} target="_blank" rel="noreferrer">Setup documentation <ExternalLink className="size-3" /></a></footer>
   </div>;
