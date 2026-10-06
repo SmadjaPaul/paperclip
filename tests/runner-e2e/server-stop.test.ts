@@ -230,6 +230,8 @@ it.skipIf(process.platform === "win32")("recovers a failed cleanup without repea
   const child = start(entry);
   await once(child, "message");
   let failInspection = false;
+  let markInspectionFailed!: () => void;
+  const inspectionFailed = new Promise<void>(resolve => { markInspectionFailed = resolve; });
   let owner: ReturnType<typeof createProcessTreeOwner> | undefined;
   const messages: unknown[] = [];
   child.on("message", message => {
@@ -242,14 +244,20 @@ it.skipIf(process.platform === "win32")("recovers a failed cleanup without repea
     createOwner: candidate => {
       owner = createProcessTreeOwner(candidate);
       return { ...owner, observe: async () => {
-        if (failInspection) { failInspection = false; throw new Error("transient inspection failure"); }
+        if (failInspection) {
+          failInspection = false;
+          markInspectionFailed();
+          throw new Error("transient inspection failure");
+        }
         await owner!.observe();
       } };
     },
   });
   try {
     const failed = expect(stop(child)).rejects.toThrow("transient inspection failure");
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Process-table inspection can take longer than 100ms on a loaded host.
+    // Keep the child alive until the intended inspection failure actually occurs.
+    await inspectionFailed;
     if (child.connected) child.send("finish");
     await failed;
     const recovery = stop(child);

@@ -35,6 +35,15 @@ feedback keeps current, company-scoped document links and blocker guidance;
 Cursor's explicit final-response format still takes precedence. Both regression
 suites are retained. The combined Runner fixture catalog contains 492 cases.
 
+The combined-source recursive typecheck and full build passed. Completion
+feedback passed nine regression tests; native completion source/build contracts
+passed 128 tests; token gates passed. Runner fixtures passed 90 files and failed
+one cleanup timing test. An unchanged isolated repeat reproduced its 100ms race.
+The test now waits for the intended inspection failure before releasing its
+child; all 13 tests in that affected file passed. Both failed attempts remain
+recorded. This changes fixture synchronization, not production cleanup behavior.
+The full default suite and fresh final-head CI/review gates run before merge.
+
 The resolved dependency lock for this combined source has SHA-256
 `d3c4cffe7d127d99789cf354c5275246526f5396d2a86ce0d387352f68a2394b`.
 The image build verifies that digest before installation. The repository lockfile
