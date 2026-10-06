@@ -31,7 +31,7 @@ import type { AcpxModelStatus } from "./model-verification.js";
 import { AcpxApprovalRequiredError, decideAcpxPermission } from "./permission-policy.js";
 import { ACPX_CAPABILITY_PROFILES } from "./capability-profiles.js";
 import { admitCursorInstructions, createCursorInstructionAdmission } from "./cursor-instructions.js";
-import { createCursorModeAdmission, resolveCursorSessionMode } from "./cursor-mode.js";
+import { createAcpxModeBinding } from "./provider-mode.js";
 
 const VERIFIED_COMMAND_SENTINEL = "paperclip-verified-acpx-command";
 const DEFAULT_RUNTIME_CLOSE_TIMEOUT_MS = 2_000;
@@ -300,17 +300,16 @@ export async function openQualifiedAcpxRuntime(
     );
   };
   const commandLaunches = { count: 0, refreshConsumedCommand: options.refreshConsumedCommand };
-  const selectedCursorMode = resolveCursorSessionMode(options.profile.agent, options.cursorMode);
-  const cursorMode = selectedCursorMode ? createCursorModeAdmission(selectedCursorMode) : null;
+  const modeBinding = createAcpxModeBinding(options.profile.agent, options.mode);
   const cursorInstructions = options.profile.agent === "cursor"
     ? createCursorInstructionAdmission(options.systemInstructions)
     : null;
   const runtimeOptions: GoalAwareAcpRuntimeOptions = {
     cwd: options.cwd,
-    ...(cursorInstructions && cursorMode ? { protocolGuardFactory: () => {
-      const instructions = cursorInstructions.createGuard();
-      const mode = cursorMode.createGuard();
-      return (direction: "inbound" | "outbound", message: unknown) => { instructions(direction, message); mode(direction, message); };
+    ...(cursorInstructions || modeBinding ? { protocolGuardFactory: () => {
+      const instructions = cursorInstructions?.createGuard();
+      const mode = modeBinding?.createGuard();
+      return (direction: "inbound" | "outbound", message: unknown) => { instructions?.(direction, message); mode?.(direction, message); };
     } } : {}),
     sessionStore,
     agentRegistry: createRegistry({
@@ -473,11 +472,11 @@ export async function openQualifiedAcpxRuntime(
         },
       }),
     );
-  const handshake = (cursorInstructions
+  const handshake = (cursorInstructions || modeBinding
     ? ensuredSession.then(async (ensuredHandle) => {
         handle = ensuredHandle;
         options.signal?.throwIfAborted();
-        await admitCursorInstructions(cursorInstructions, {
+        if (cursorInstructions) await admitCursorInstructions(cursorInstructions, {
           providerSpawned: commandLaunches.count > 0,
           load: async () => {
             // A fresh ACPX manager may reuse a saved record without spawning.
@@ -498,11 +497,11 @@ export async function openQualifiedAcpxRuntime(
             await commandLaunches.refreshConsumedCommand?.();
           },
         });
-        if (cursorMode && !cursorMode.isReady()) {
-          if (!runtime.setConfigOption) throw new Error("Cursor mode admission requires native mode configuration");
-          await runtime.setConfigOption({ handle: ensuredHandle, key: "mode", value: selectedCursorMode! });
-          cursorInstructions.assertReady();
-          cursorMode.assertReady();
+        if (modeBinding && !modeBinding.isReady()) {
+          if (!runtime.setConfigOption) throw new Error("Provider mode admission requires native mode configuration");
+          await runtime.setConfigOption({ handle: ensuredHandle, key: modeBinding.configKey, value: modeBinding.selectedMode });
+          cursorInstructions?.assertReady();
+          modeBinding.assertReady();
           await children.verifyLifetimeOwnership();
           options.signal?.throwIfAborted();
           await commandLaunches.refreshConsumedCommand?.();
@@ -522,7 +521,7 @@ export async function openQualifiedAcpxRuntime(
       ? await raceRuntimeHandshakeWithAbort(boundedHandshake, options.signal)
       : await boundedHandshake;
     cursorInstructions?.assertReady();
-    cursorMode?.assertReady();
+    modeBinding?.assertReady();
     // A provider can answer only after the verified sentinel is armed, but do
     // not admit the session until the owner has observed that exact handoff.
     await children.verifyLifetimeOwnership();
@@ -577,7 +576,7 @@ export async function openQualifiedAcpxRuntime(
     return runtimePort(
       runtime,
       handle,
-      { ...requireIdentity(handle), ...(selectedCursorMode ? { cursorMode: selectedCursorMode } : {}) },
+      { ...requireIdentity(handle), ...(modeBinding ? { mode: modeBinding.selectedMode } : {}) },
       baseStore,
       children,
       runtimeCloseTimeoutMs,

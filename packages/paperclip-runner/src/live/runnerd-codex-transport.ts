@@ -1,3 +1,4 @@
+import { resolveAcpxProviderMode } from "../drivers/acpx/provider-mode.js";
 import { isAcpxCanonicalInputMethod } from "../drivers/acpx/profile-extensions.js";
 import { RunnerdTraceFrameIndex } from "./runnerd-trace-frame-index.js";
 import { waitForWarmAttachmentReadiness } from "./warm-attachment-readiness.js";
@@ -1157,7 +1158,7 @@ export interface CapabilityRunnerdCodexTransportOptions {
   /** Explicit evaluation-only candidate selection, never derived from persisted session input. */
   acpxCandidateProfile?: "pi" | "cursor" | "copilot";
   acpxPermissionMode?: NativeAcpxPermissionMode;
-  acpxCursorMode?: "agent" | "plan" | "ask";
+  acpxMode?: string;
   acpxPermissionModePinned?: boolean;
   acpxSidecarPath?: string;
   /** SHA-256 verified by the provider-pack authority before runner startup. */
@@ -3511,10 +3512,10 @@ class DurablePrpCodexTransport implements CodexAppServerTransport {
   readonly #bridgedRuntimeInputs = new Map<string, { durableTurnId: string; permission?: boolean }>();
 
   constructor(readonly options: CapabilityRunnerdCodexTransportOptions) {
-    if (options.acpxCursorMode !== undefined && (options.provider !== "acpx" || options.acpxAgent !== "cursor"
-      || !["agent", "plan", "ask"].includes(options.acpxCursorMode))) {
-      throw new Error("acpxCursorMode must be agent, plan, or ask and is supported only for Cursor");
+    if (options.acpxMode !== undefined && options.provider !== "acpx") {
+      throw new Error("acpxMode requires the ACPX provider");
     }
+    if (options.provider === "acpx") resolveAcpxProviderMode(options.acpxAgent ?? "codex", options.acpxMode);
     if (options.adoptExistingRunner && !options.stateDirectory?.trim()) {
       throw new Error("native_adopted_runner_state_directory_required");
     }
@@ -4669,6 +4670,8 @@ class DurablePrpCodexTransport implements CodexAppServerTransport {
         );
       }
     }
+    const selectedAcpxMode = provider === "acpx"
+      ? resolveAcpxProviderMode(acpxProfile!.agent, this.options.acpxMode) : undefined;
     const completionContract = record(params.completionContract);
     const runAttachTemplate = {
       authorizedTools: this.#authorizedTools,
@@ -4701,7 +4704,7 @@ class DurablePrpCodexTransport implements CodexAppServerTransport {
               cwd: String(params.cwd ?? tmpdir()),
               instructions: baseInstructions,
               providerPolicy: { readOnly: params.permissions === "paperclip-runner-workspace-read-only" },
-              ...(acpxProfile!.agent === "cursor" ? { cursorMode: this.options.acpxCursorMode ?? "agent" } : {}),
+              ...(selectedAcpxMode === undefined ? {} : { mode: selectedAcpxMode }),
               permissionMode: resolveRunnerdAcpxPermissionMode(
                 this.options.acpxPermissionMode,
               ),

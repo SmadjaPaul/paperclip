@@ -1,3 +1,4 @@
+import { isProviderMode } from "../../contracts/provider-mode.js";
 import { cursorPlanToolIdentity, cursorToolExecutionId } from "./cursor-plan-tool-identity.js";
 import { createCursorToolEvidence, type CursorToolEvidence } from "./cursor-tool-evidence.js";
 import { requireAcpxResponseDelivery } from "./response-delivery.js";
@@ -143,7 +144,7 @@ export interface CodexAcpxDriverOptions {
   runtimeDirectory: string;
   model: string;
   permissionMode?: NativeAcpxPermissionMode;
-  cursorMode?: "agent" | "plan" | "ask";
+  mode?: string;
   providerPolicy?: { readOnly: boolean };
   runtimeContext?: OpenAcpxRuntimeHostOptions["runtimeContext"];
   systemInstructions?: string;
@@ -457,7 +458,7 @@ export class CodexAcpxDriver implements HarnessDriver {
         clientCapabilities: acpxProfileClientCapabilities(this.#options.agent ?? "codex"),
         model: this.#options.model,
         permissionMode: this.#options.permissionMode ?? "approve-all",
-        cursorMode: this.#options.cursorMode,
+        mode: this.#options.mode,
         providerPolicy: this.#options.providerPolicy,
         runtimeContext: this.#options.runtimeContext,
         systemInstructions: this.#options.systemInstructions,
@@ -1274,7 +1275,7 @@ class CodexAcpxSession implements HarnessSession {
         requestedModel: identity.requestedModel,
         effectiveModel: identity.effectiveModel,
         permissionMode: identity.permissionMode,
-        ...(identity.cursorMode === undefined ? {} : { cursorMode: identity.cursorMode }),
+        ...(identity.mode === undefined ? {} : { mode: identity.mode }),
         providerLifetimeFenceCandidates:
           identity.providerLifetimeFenceCandidates,
       },
@@ -2120,7 +2121,7 @@ function validateRecoverySnapshot(snapshot: PersistedHarnessSession): void {
       !["approve-all", "approve-paperclip", "approve-reads", "deny-all"].includes(
         identity.permissionMode,
       )) ||
-    (identity.cursorMode !== undefined && !["agent", "plan", "ask"].includes(identity.cursorMode)) ||
+    (identity.mode !== undefined && !isProviderMode(identity.mode)) ||
     !validProviderLifetimeFenceCandidates(
       identity.providerLifetimeFenceCandidates,
     )

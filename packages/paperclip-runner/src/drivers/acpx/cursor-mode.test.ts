@@ -12,11 +12,9 @@ function opened(expected: "agent" | "plan" | "ask", initial = expected) {
 }
 
 describe("Cursor native mode admission", () => {
-  it("defaults only Cursor and rejects unadmitted aliases and other providers", () => {
-    expect(resolveCursorSessionMode("cursor", undefined)).toBe("agent");
-    expect(resolveCursorSessionMode("codex", undefined)).toBeUndefined();
-    for (const mode of ["code", "architect", "search", "chat", "", null]) expect(() => resolveCursorSessionMode("cursor", mode)).toThrow();
-    expect(() => resolveCursorSessionMode("pi", "agent")).toThrow(/only supported/);
+  it("defaults Cursor and rejects unadmitted aliases", () => {
+    expect(resolveCursorSessionMode( undefined)).toBe("agent");
+    for (const mode of ["code", "architect", "search", "chat", "", null]) expect(() => resolveCursorSessionMode( mode)).toThrow();
   });
   it.each(["agent", "plan", "ask"] as const)("admits %s only after correlated native acknowledgements", expected => {
     const { admission, guard } = opened(expected);

@@ -4,7 +4,7 @@ import { resolveQualifiedAcpxProfile, validatePrpStructuredRunResult } from "../
 import { buildQuestionResponseDeliveryEnvelope } from "../question-response-delivery.js";
 import { NATIVE_COMPLETION_CONTRACT_SCHEMA, NATIVE_COMPLETION_POLICY_VERSION } from "./completion-contracts.js";
 import { nativeSha256 } from "./canonical.js";
-import { nativeCursorPlanWaitFromFacts, type CursorPlanWaitFacts } from "./native-cursor-plan-wait.js";
+import { hasCommittedNativeCursorPlanWait, nativeCursorPlanWaitFromFacts, type CursorPlanWaitFacts } from "./native-cursor-plan-wait.js";
 
 function fixture(): CursorPlanWaitFacts {
   const b = { companyId: "company", issueId: "issue", agentId: "agent", runId: "run" };
@@ -24,7 +24,7 @@ function fixture(): CursorPlanWaitFacts {
   };
   return {
     binding: b,
-    run: { id: b.runId, companyId: b.companyId, agentId: b.agentId, nativeIssueId: b.issueId, runtimeMode: "native", runnerInstanceId: "instance", status: "running", completionContractId: "contract", completionContractSha256: contractSha, runnerProfileJson: { nativeExecutionInput: { binding: b, provider: { kind: "acpx", agent: "cursor", cursorMode: "plan", model: "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]", profile: resolveQualifiedAcpxProfile("cursor", "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]") }, session: { normalizedSessionId: "session" }, completionContract: { id: "contract", sha256: contractSha, contract } } } },
+    run: { id: b.runId, companyId: b.companyId, agentId: b.agentId, nativeIssueId: b.issueId, runtimeMode: "native", runnerInstanceId: "instance", status: "running", completionContractId: "contract", completionContractSha256: contractSha, runnerProfileJson: { nativeExecutionInput: { binding: b, provider: { kind: "acpx", agent: "cursor", mode: "plan", model: "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]", profile: resolveQualifiedAcpxProfile("cursor", "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]") }, session: { normalizedSessionId: "session" }, completionContract: { id: "contract", sha256: contractSha, contract } } } },
     contract: { id: "contract", ...contractMetadata, canonicalSha256: contractSha, contractJson: contract },
     events: [
       event(275, "runtime_request.created", { request: { schema: "paperclip.runtime_request.v2", status: "pending", type: "input", requestKind: "runtime", requestId: "request", turnId: "turn", itemId: "native-plan-tool", origin: { provider: "cursor", method: "cursor/create_plan", adapter: "acpx-runtime-sidecar" }, input } }),
@@ -100,6 +100,45 @@ describe("accepted Cursor plan passive-wait authority", () => {
     f.events.unshift(structuredClone(turnStart)); resequence(f);
     expect(nativeCursorPlanWaitFromFacts(f)).toBeNull();
   });
+  it("preserves an exact committed wait using the pre-release field without admitting new legacy waits", async () => {
+    const f = fixture();
+    f.run.status = "succeeded";
+    const proof = nativeCursorPlanWaitFromFacts(f)!;
+    const admission = (f.run.runnerProfileJson as any).nativeExecutionInput;
+    admission.provider.cursorMode = admission.provider.mode;
+    delete admission.provider.mode;
+    expect(nativeCursorPlanWaitFromFacts(f)).toBeNull();
+    const payload = (type: string) => (f.events.find(e => e.eventType === type)!.payload as any).prpEvent;
+    const { interaction, delivery } = f.interactions[0]!;
+    const toolBinding = { toolExecutionId: proof.source.toolExecutionId, toolLifecycleSha256: proof.source.toolLifecycleSha256 };
+    const source = { ...proof.source, authoritySha256: nativeSha256({ admission, contract: f.contract,
+      created: payload("runtime_request.created"), resolved: payload("runtime_request.resolved"), terminal: payload("turn.completed"),
+      interaction, delivery, resolvedAt: interaction.resolvedAt!.toISOString(), acknowledgedAt: delivery.acknowledgedAt!.toISOString(), toolBinding }) };
+    const resultJson = { result: proof.result, terminal: { schema: "paperclip.prp.terminal.v1", runTerminalState: "succeeded", turnTerminalState: "completed", reportedWorkDisposition: "yielded" } };
+    const canonicalSha256 = nativeSha256(resultJson);
+    const db = () => {
+      const rows = [
+        [{ decision: { decisionJson: { cursorPlanWait: source, cursorPlanWaitResult: { resultId: "result", resultSha256: canonicalSha256 } } },
+          result: { id: "result", canonicalSha256, completionContractId: source.contractId, turnId: source.turnId, resultJson } }],
+        [{ run: f.run, contract: f.contract }], f.events, f.interactions,
+        [{ ...f.run, createdAt: new Date(0) }], [interaction], [], [],
+      ];
+      return { select: () => {
+        const result = rows.shift();
+        const query: any = { from: () => query, innerJoin: () => query, where: () => query, orderBy: () => query, limit: () => Promise.resolve(result) };
+        return query;
+      } } as never;
+    };
+    expect(await hasCommittedNativeCursorPlanWait(db(), f.binding)).toBe(true);
+    // History is immutable: neither changing the old mode nor rewriting its
+    // field name may preserve the original acceptance authority.
+    admission.provider.cursorMode = "agent";
+    expect(await hasCommittedNativeCursorPlanWait(db(), f.binding)).toBe(false);
+    delete admission.provider.cursorMode;
+    admission.provider.mode = "plan";
+    expect(await hasCommittedNativeCursorPlanWait(db(), f.binding)).toBe(false);
+  });
+
   it("records the accepted revision and explicitly unfinished Plan-mode continuation", () => {
     const value = nativeCursorPlanWaitFromFacts(fixture());
     expect(value?.source).toMatchObject({ requestId: "request", planRevision: `plan-${"a".repeat(64)}`, terminalEventId: "instance:304", toolExecutionId: "native-plan-tool" });
@@ -179,7 +218,7 @@ describe("accepted Cursor plan passive-wait authority", () => {
     ["wrong task", (f: CursorPlanWaitFacts) => { f.run.nativeIssueId = "other"; }],
     ["failed run", (f: CursorPlanWaitFacts) => { f.run.status = "failed"; }],
     ["cancelled run", (f: CursorPlanWaitFacts) => { f.run.status = "cancelled"; }],
-    ["Agent mode", (f: CursorPlanWaitFacts) => { (f.run.runnerProfileJson as any).nativeExecutionInput.provider.cursorMode = "agent"; }],
+    ["Agent mode", (f: CursorPlanWaitFacts) => { (f.run.runnerProfileJson as any).nativeExecutionInput.provider.mode = "agent"; }],
     ["stale profile", (f: CursorPlanWaitFacts) => { (f.run.runnerProfileJson as any).nativeExecutionInput.provider.profile = { ...resolveQualifiedAcpxProfile("cursor", "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"), commandDigest: "old" }; }],
     ["changed contract policy", (f: CursorPlanWaitFacts) => { f.contract.policyVersion = "tampered-policy"; }],
     ["changed completion authority", (f: CursorPlanWaitFacts) => { f.contract.completionAuthority = "server_arbiter"; }],

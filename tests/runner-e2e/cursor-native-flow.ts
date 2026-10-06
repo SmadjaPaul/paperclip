@@ -34,7 +34,7 @@ export function hasCursorAcceptedPlanWait(state: { issue: Row; runs: Row[]; inte
   if (state.runs.length !== 1 || state.issue.status !== "in_progress" || state.interactions.some(card => card.status === "pending")) return false;
   const run = state.runs[0]!;
   return run.status === "succeeded" && run.runtimeMode === "native" && run.nativeIssueId === state.issue.id
-    && run.runnerProfileJson?.nativeExecutionInput?.provider?.cursorMode === "plan"
+    && run.runnerProfileJson?.nativeExecutionInput?.provider?.mode === "plan"
     && run.resultJson?.finalizationPhase === "committed"
     && run.resultJson?.finalizationReasonCode === "native_plan_accepted_waiting_for_continuation"
     && run.resultJson?.authoritativeDecision === "in_progress";

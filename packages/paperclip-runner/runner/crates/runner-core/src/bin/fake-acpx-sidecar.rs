@@ -803,7 +803,7 @@ fn bootstrap_success(
                     "requestedModel": model,
                     "effectiveModel": if mode == "bootstrap-wrong-model" { "wrong-model" } else { model },
                     "permissionMode": params.get("permissionMode"),
-                    "cursorMode": params.get("cursorMode"),
+                    "mode": params.get("mode"),
                     "providerLifetimeFenceCandidates": [60001, 60002, 60003],
                 },
                 "status": {},

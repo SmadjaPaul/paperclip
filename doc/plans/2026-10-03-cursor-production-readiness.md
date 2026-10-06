@@ -591,3 +591,42 @@ production admission; assemble and verify the final package/image combination;
 run the real installed task smoke without qualification overrides; then prepare
 the PR for production review. Native AskQuestion and complete per-run dollar
 accounting remain excluded. Production merge/deployment remains a separate action.
+
+
+## Provider-neutral mode boundary (2026-10-05)
+
+The pre-release implementation put `CursorMode` / `cursorMode` into shared Rust,
+native execution, sidecar and recovery contracts. The production port now carries
+an opaque bounded `mode` identifier through those contracts. Rust does not define
+Cursor's Agent/Plan/Ask vocabulary or enforce Cursor-only mode selection.
+The provider mode capability registry delegates supported values, defaults, native
+translation and acknowledgement to the Cursor adapter. Other adapters must qualify
+mode support before registering it; unsupported selections still fail before a
+provider prompt. Product configuration remains `acpxSessionMode` with Agent as the
+Cursor default. Session lifecycle and permission policy remain separate controls.
+
+Exact mode equality remains part of the immutable session key, observed identity,
+warm continuation, suspension checkpoint and controller recovery checks. Generic
+transport tests also cover non-Cursor identifiers such as `architect` and
+`custom/build`. Missing or changed observed modes cannot recover an existing
+mode-bound session. The pre-release `cursorMode` input and checkpoint format is
+fenced rather than silently converted or defaulted. Only inspection of an already
+committed accepted-plan wait may read its old field. That path verifies the original
+unchanged acceptance proof and preserves task history; it cannot admit a new wait
+from an old field. A regression covers both preservation and attempted rewriting.
+
+Validation of the updated source: recursive typecheck, full build, all Rust Runner
+checks (646 passing test invocations, including conformance/replay repeats), 254
+focused Runner TypeScript tests and 584 focused server tests passed. The complete
+Runner TypeScript run passed 67 package contracts and 2,587 Vitest cases, with one
+failure and ten skips. Its sole failure selected a preserved pre-release daemon
+from the old three-platform staging directory: that daemon expected OpenCode
+1.18.32, while current source expects 1.18.34. The historical platform set and
+manifest were preserved separately; the current-source daemon remained staged.
+The affected case and all 15 ACPX transport cases passed on a focused repeat
+against that daemon. The original failed run remains retained. New-head PR checks
+and review must complete before merge. No new paid provider cells were run for this architecture change.
+Historical live qualification, image, package and review identities above remain
+historical evidence and are not relabeled as certification of this new source.
+Release assembly must build matching daemon, sidecar and controller artifacts.
+Auto-merge is disabled while the updated boundary receives review.

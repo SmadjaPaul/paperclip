@@ -1,3 +1,4 @@
+import { isProviderMode } from "../../vendor/paperclip-runner/index.js";
 import { bundledRemoteProviderPackManifestPath, bundledRemoteRunnerBinary } from "../../vendor/paperclip-runner/index.js";
 import { nativeRetryCancellationEligible, rethrowNativeCancellationLockConflict, assertCancellationRequest, cancellationIntentId as callerCancellationIntentId, cancellationRequestId } from "./native-cancellation-request.js";
 import { readNativeCursorPlanWait } from "./native-cursor-plan-wait.js";
@@ -5496,7 +5497,7 @@ export function providerSessionIdentityFromDurableProviderState(input: {
         identity.requestedModel !== expectedModel ||
         identity.effectiveModel !== expectedModel ||
         identity.permissionMode !== input.execution.provider.permissionMode ||
-        !acpxRecoveryCursorModeMatches(input.execution.provider, descriptor.cursorMode, identity.cursorMode) ||
+        !acpxRecoveryModeMatches(input.execution.provider, descriptor.mode, identity.mode) ||
         !["approve-all", "approve-paperclip", "approve-reads", "deny-all"].includes(
           String(identity.permissionMode),
         ) ||
@@ -5589,22 +5590,19 @@ export function durableProviderCheckpointFailureReason(execution: NativeExecutio
   if (state.lifecycle !== "suspended") return "provider_not_suspended";
   if (state.providerExitUnconfirmed !== false) return "provider_exit_unconfirmed";
   if (state.activeTurnId !== null) return "provider_turn_unsettled";
-  if (!acpxRecoveryCursorModeMatches(execution.provider, record(state.descriptor).cursorMode, record(state.identity).cursorMode)) return "cursor_mode_binding";
+  if (!acpxRecoveryModeMatches(execution.provider, record(state.descriptor).mode, record(state.identity).mode)) return "mode_binding";
   return "identity_binding";
 }
 
 // Recovery consumes observed identities; it must never apply the fresh-config
-// default to a missing persisted mode or allow another provider to carry it.
-function acpxRecoveryCursorModeMatches(
+// default to a missing persisted mode. Provider capability checks belong to admission.
+function acpxRecoveryModeMatches(
   provider: NativeExecutionInput["provider"],
   ...observedModes: unknown[]
 ): boolean {
-  const expected = record(provider).cursorMode;
-  if (provider.kind === "acpx" && provider.agent === "cursor") {
-    return (expected === "agent" || expected === "plan" || expected === "ask")
-      && observedModes.every(mode => mode === expected);
-  }
-  return expected === undefined && observedModes.every(mode => mode === undefined);
+  const expected = record(provider).mode;
+  return (expected === undefined || isProviderMode(expected))
+    && observedModes.every(mode => mode === expected);
 }
 
 export function providerSessionIdentityTransitionIsAllowed(input: {
@@ -5612,10 +5610,10 @@ export function providerSessionIdentityTransitionIsAllowed(input: {
   previous: unknown;
   current: unknown;
 }): boolean {
-  if (input.execution.provider.kind === "acpx" && !acpxRecoveryCursorModeMatches(
+  if (input.execution.provider.kind === "acpx" && !acpxRecoveryModeMatches(
     input.execution.provider,
-    record(record(input.previous).providerSessionIdentity).cursorMode,
-    record(record(input.current).providerSessionIdentity).cursorMode,
+    record(record(input.previous).providerSessionIdentity).mode,
+    record(record(input.current).providerSessionIdentity).mode,
   )) return false;
   if (canonicalJson(input.previous) === canonicalJson(input.current)) {
     return true;
@@ -8440,7 +8438,7 @@ async function executePaperclipNativeSessionWithinScope(
               if (terminalEvent.eventType !== "turn.completed") return null;
               const governedWait = await resolvePendingGovernedWait();
               if (governedWait) return governedWait;
-              if (input.execution.provider.kind === "acpx" && input.execution.provider.agent === "cursor" && input.execution.provider.cursorMode === "plan") {
+              if (input.execution.provider.kind === "acpx" && input.execution.provider.agent === "cursor" && input.execution.provider.mode === "plan") {
                 const planWait = await readNativeCursorPlanWait(input.db, input.execution.binding);
                 if (planWait?.source.terminalEventId === terminalEvent.sourceEventId) return planWait.result;
               }
@@ -12589,7 +12587,7 @@ async function createRunnerdBackendWithinSessionClaim(
               // Read only the server operator environment, never agent/runtime env.
               acpxCandidateProfile: resolveAcpxQualification(input.execution.provider, process.env),
               acpxPermissionMode: input.execution.provider.permissionMode,
-              acpxCursorMode: input.execution.provider.cursorMode,
+              acpxMode: input.execution.provider.mode,
               acpxPermissionModePinned:
                 input.execution.schema === "paperclip.native-execution-input.v4" ||
                 input.execution.schema === "paperclip.native-execution-input.v5",

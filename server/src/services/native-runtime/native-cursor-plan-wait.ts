@@ -57,6 +57,13 @@ function isHistoricalUnboundWait(source?: NativeCursorPlanWaitSource): boolean {
   return source !== undefined && source.toolExecutionId === undefined && source.toolLifecycleSha256 === undefined;
 }
 
+// Pre-release records used a vendor-specific field. Only a previously committed
+// wait may read it; the unmodified admission remains bound to its original hash.
+function isPlanMode(provider: Record<string, any>, committed: boolean): boolean {
+  if (provider.mode !== undefined) return provider.mode === "plan" && provider.cursorMode === undefined;
+  return committed && provider.cursorMode === "plan";
+}
+
 /** Only committed native request/answer/normal-terminal facts can create this passive wait. */
 export function nativeCursorPlanWaitFromFacts(facts: CursorPlanWaitFacts) {
   return cursorPlanWaitFromFacts(facts);
@@ -75,7 +82,7 @@ function cursorPlanWaitFromFacts(facts: CursorPlanWaitFacts, committedSource?: N
       if (!["agent", "driverKind", "protocolVersion", "acpxVersion", "commandDigest", "agentProfileVersion", "agentServerPackage", "agentServerVersion", "agentRuntimePackage", "agentRuntimeVersion"].every(key => profile[key] === record(expected)[key])) return null;
     }
     if (run.id !== b.runId || run.companyId !== b.companyId || run.agentId !== b.agentId || run.nativeIssueId !== b.issueId || run.runtimeMode !== "native" || !["running", "succeeded"].includes(run.status) ||
-      !Object.entries(b).every(([key, value]) => record(admission.binding)[key] === value) || provider.kind !== "acpx" || provider.agent !== "cursor" || provider.cursorMode !== "plan" || typeof provider.model !== "string" || !provider.model.trim() ||
+      !Object.entries(b).every(([key, value]) => record(admission.binding)[key] === value) || provider.kind !== "acpx" || provider.agent !== "cursor" || !isPlanMode(provider, committedSource !== undefined) || typeof provider.model !== "string" || !provider.model.trim() ||
       record(admission.completionContract).id !== contract.id || record(admission.completionContract).sha256 !== contract.canonicalSha256 || nativeCompletionContractSha256(contract) !== contract.canonicalSha256 || run.completionContractId !== contract.id || run.completionContractSha256 !== contract.canonicalSha256 || !same(contract.contractJson, record(admission.completionContract).contract)) return null;
     const sessionId = record(admission.session).normalizedSessionId;
     if (typeof sessionId !== "string" || !sessionId || facts.events.length === 0 || facts.events.length > MAX_CONTROL_EVENTS + MAX_PROGRESS_EVENTS) return null;
@@ -187,7 +194,9 @@ async function readCursorPlanWaitProof(db: Db, binding: Binding, locked: boolean
     .innerJoin(issues, and(eq(issues.id, binding.issueId), eq(issues.companyId, binding.companyId), eq(issues.assigneeAgentId, binding.agentId)))
     .where(and(eq(heartbeatRuns.id, binding.runId), eq(heartbeatRuns.companyId, binding.companyId), eq(heartbeatRuns.agentId, binding.agentId), eq(heartbeatRuns.nativeIssueId, binding.issueId))).limit(1);
   const [row] = await (locked ? q.for("share", { noWait: true }) : q);
-  if (!row || record(record(row.run.runnerProfileJson).nativeExecutionInput).provider?.agent !== "cursor" || record(record(row.run.runnerProfileJson).nativeExecutionInput).provider?.cursorMode !== "plan") return null;
+  if (!row) return null;
+  const provider = record(record(record(row.run.runnerProfileJson).nativeExecutionInput).provider);
+  if (provider.agent !== "cursor" || !isPlanMode(provider, committedSource !== undefined)) return null;
   const eventTypes = isHistoricalUnboundWait(committedSource) ? LEGACY_EVENT_TYPES : EVENT_TYPES;
   const eventLimit = MAX_CONTROL_EVENTS + (isHistoricalUnboundWait(committedSource) ? 0 : MAX_PROGRESS_EVENTS) + 1;
   const eqs = db.select().from(heartbeatRunEvents).where(and(eq(heartbeatRunEvents.companyId, binding.companyId), eq(heartbeatRunEvents.runId, binding.runId), inArray(heartbeatRunEvents.eventType, eventTypes))).orderBy(asc(heartbeatRunEvents.seq)).limit(eventLimit);

@@ -10,7 +10,7 @@ use std::os::unix::fs::DirBuilderExt;
 use serde::{Deserialize, Serialize};
 
 use crate::acpx_provider_session::{
-    AcpxPermissionMode, AcpxProviderSessionConfig, AcpxProviderSessionIdentity, CursorMode,
+    AcpxPermissionMode, AcpxProviderSessionConfig, AcpxProviderSessionIdentity,
 };
 use crate::durable::{
     create_private_temporary_file, open_private_regular_file, verify_private_directory,
@@ -49,7 +49,7 @@ struct PersistedAcpxProviderSessionIdentity {
     effective_model: String,
     permission_mode: AcpxPermissionMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    cursor_mode: Option<CursorMode>,
+    mode: Option<String>,
     provider_lifetime_fence_candidates: [u16; 3],
 }
 
@@ -72,7 +72,7 @@ impl PersistedAcpxProviderSessionIdentity {
             requested_model: identity.requested_model,
             effective_model: identity.effective_model,
             permission_mode,
-            cursor_mode: identity.cursor_mode,
+            mode: identity.mode,
             provider_lifetime_fence_candidates: identity.provider_lifetime_fence_candidates,
         })
     }
@@ -89,7 +89,7 @@ impl PersistedAcpxProviderSessionIdentity {
             requested_model: self.requested_model.clone(),
             effective_model: self.effective_model.clone(),
             permission_mode: Some(self.permission_mode),
-            cursor_mode: self.cursor_mode,
+            mode: self.mode.clone(),
             provider_lifetime_fence_candidates: self.provider_lifetime_fence_candidates,
         }
     }
@@ -110,7 +110,7 @@ impl AcpxSuspensionCheckpoint {
             || identity.requested_model != config.model
             || identity.effective_model != config.model
             || identity.permission_mode != Some(config.permission_mode)
-            || identity.cursor_mode != config.cursor_mode
+            || identity.mode != config.mode
             || config
                 .expected_identity
                 .as_ref()

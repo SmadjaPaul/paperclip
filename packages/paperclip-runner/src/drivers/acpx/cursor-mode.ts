@@ -1,10 +1,6 @@
 export type CursorSessionMode = "agent" | "plan" | "ask";
 
-export function resolveCursorSessionMode(agent: string, mode: unknown): CursorSessionMode | undefined {
-  if (agent !== "cursor") {
-    if (mode !== undefined) throw new Error("Cursor session mode is only supported by Cursor");
-    return undefined;
-  }
+export function resolveCursorSessionMode(mode: unknown): CursorSessionMode {
   if (mode === undefined) return "agent";
   if (mode !== "agent" && mode !== "plan" && mode !== "ask") throw new Error("Invalid Cursor session mode");
   return mode;

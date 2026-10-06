@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { parseProviderMode } from "../contracts/provider-mode.js";
 import { cursorPlanToolIdentity, cursorToolIdentity } from "../drivers/acpx/cursor-plan-tool-identity.js";
 import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
@@ -289,7 +290,7 @@ async function dispatch(
         clientCapabilities: acpxProfileClientCapabilities(params.agent),
         model: params.model,
         permissionMode: params.permissionMode,
-        cursorMode: params.cursorMode,
+        mode: params.mode,
         providerPolicy: params.providerPolicy,
         systemInstructions: params.systemInstructions,
         runtimeContext: params.runtimeContext,
@@ -1190,9 +1191,10 @@ function safeOutput(value: unknown): Record<string, unknown> {
 function parseOpenParams(
   value: Record<string, unknown>,
 ): AcpxSidecarOpenParams {
+  const fields = new Set(["runtimeDirectory", "normalizedSessionId", "workingDirectory", "agent", "model", "permissionMode", "mode", "permissionModePinned", "providerPolicy", "systemInstructions", "runtimeContext", "tools", "providerSessionKey", "expectedIdentity"]);
+  if (Object.keys(value).some(key => !fields.has(key))) throw new Error("ACPX open parameters include an unsupported field");
   const agent = requireQualifiedAgent(value.agent);
   const model = requiredText(value.model, "model");
-  if (value.cursorMode !== undefined && agent !== "cursor") throw new Error("cursorMode is supported only for Cursor");
   resolveQualifiedAcpxProfile(agent, model);
   if (
     value.providerSessionKey !== undefined &&
@@ -1212,7 +1214,7 @@ function parseOpenParams(
     agent,
     model,
     permissionMode: requiredPermissionMode(value.permissionMode),
-    ...(agent === "cursor" ? { cursorMode: requiredCursorMode(value.cursorMode === undefined ? "agent" : value.cursorMode) } : {}),
+    ...(value.mode === undefined ? {} : { mode: parseProviderMode(value.mode) }),
     permissionModePinned: value.permissionModePinned === true,
     ...(value.providerPolicy == null ? {} : { providerPolicy: parseProviderPolicy(value.providerPolicy) }),
     systemInstructions: boundedText(
@@ -1282,7 +1284,7 @@ function parseExpectedIdentity(value: unknown): AcpxExpectedSessionIdentity {
     ...(input.permissionMode === undefined
       ? {}
       : { permissionMode: requiredPermissionMode(input.permissionMode) }),
-    ...(input.cursorMode === undefined ? {} : { cursorMode: requiredCursorMode(input.cursorMode) }),
+    ...(input.mode === undefined ? {} : { mode: parseProviderMode(input.mode) }),
     providerLifetimeFenceCandidates: requiredFenceCandidates(
       input.providerLifetimeFenceCandidates,
     ),
@@ -1305,11 +1307,6 @@ function requiredFenceCandidates(
     );
   }
   return Object.freeze([...value]) as readonly [number, number, number];
-}
-
-function requiredCursorMode(value: unknown): "agent" | "plan" | "ask" {
-  if (value === "agent" || value === "plan" || value === "ask") return value;
-  throw new Error("cursorMode must be agent, plan, or ask");
 }
 
 function requiredPermissionMode(

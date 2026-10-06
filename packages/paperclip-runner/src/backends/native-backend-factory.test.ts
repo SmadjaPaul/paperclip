@@ -544,7 +544,7 @@ describe("native backend factory", () => {
     const input = acpxExecution();
     if (input.provider.kind !== "acpx") throw new Error("invalid fixture");
     const model = "explicit-cursor-model";
-    Object.assign(input.provider, { agent: "cursor", model, cursorMode: "agent", profile: resolveQualifiedAcpxProfile("cursor", model) });
+    Object.assign(input.provider, { agent: "cursor", model, mode: "agent", profile: resolveQualifiedAcpxProfile("cursor", model) });
     const backend = createNativeSessionBackend(input, { acpxRuntimeDirectory: "/runtime", acpxEnvironment: { CURSOR_API_KEY: "explicit-fixture" } });
     await expect(backend.descriptor()).resolves.toMatchObject({ name: "acpx_runtime", version: "0.13.1" });
   });

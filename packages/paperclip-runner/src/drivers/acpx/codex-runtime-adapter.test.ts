@@ -129,7 +129,7 @@ describe("Codex ACPX runtime adapter", () => {
   });
   it.each(["plan", "ask"] as const)("admission explicitly selects %s and renews temporary command authority", async selected => {
     const runtime = fakeRuntime(); const options = openOptions(fakeCommand());
-    options.profile = { ...options.profile, agent: "cursor" }; options.cursorMode = selected;
+    options.profile = { ...options.profile, agent: "cursor" }; options.mode = selected;
     options.refreshConsumedCommand = vi.fn(async () => undefined);
     let created!: AcpRuntimeOptions;
     const binding = cursorInstructionBinding(options.systemInstructions);
@@ -148,7 +148,7 @@ describe("Codex ACPX runtime adapter", () => {
     });
     expect(vi.mocked(runtime.setConfigOption).mock.calls.map(([call]) => [call.key, call.value])).toEqual([["model", options.profile.reportedModelId], ["mode", selected]]);
     expect(options.refreshConsumedCommand).toHaveBeenCalledTimes(2);
-    expect(await port.identity()).toMatchObject({ cursorMode: selected });
+    expect(await port.identity()).toMatchObject({ mode: selected });
     expect(runtime.startTurn).not.toHaveBeenCalled();
     await port.close({ reason: "mode fixture cleanup" });
   });

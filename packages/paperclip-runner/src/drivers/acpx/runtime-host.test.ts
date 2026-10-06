@@ -198,13 +198,13 @@ describe("ACPX runtime host", () => {
   it.each([undefined, "plan", "ask"] as const)("requires observed Cursor mode %s in the host identity", async selected => {
     const fixture = await hostFixture();
     const mode = selected ?? "agent";
-    const options = { ...fixture.options, agent: "cursor" as const, model: "explicit-test-model", cursorMode: selected, permissionMode: "approve-all" as const, environment: { CURSOR_API_KEY: "test" } };
+    const options = { ...fixture.options, agent: "cursor" as const, model: "explicit-test-model", mode: selected, permissionMode: "approve-all" as const, environment: { CURSOR_API_KEY: "test" } };
     const openRuntime = vi.fn(async (launch: AcpxRuntimePortOpenOptions) => {
-      expect(launch.cursorMode).toBe(mode);
-      return runtimePort({ getStatus: async () => ({ models: { currentModelId: options.model } }), identity: async () => ({ acpxRecordId: "record-1", backendSessionId: "backend-1", agentSessionId: "agent-1", cursorMode: mode }) });
+      expect(launch.mode).toBe(mode);
+      return runtimePort({ getStatus: async () => ({ models: { currentModelId: options.model } }), identity: async () => ({ acpxRecordId: "record-1", backendSessionId: "backend-1", agentSessionId: "agent-1", mode: mode }) });
     });
     const host = await AcpxRuntimeHost.open(options, fixture.dependencies({ openRuntime }));
-    expect(host.identity().cursorMode).toBe(mode);
+    expect(host.identity().mode).toBe(mode);
     await host.close({ reason: "mode test complete" });
   });
 
@@ -213,10 +213,10 @@ describe("ACPX runtime host", () => {
     const port = runtimePort({ getStatus: async () => ({ models: { currentModelId: "explicit-test-model" } }) });
     const openRuntime = vi.fn(async () => port);
     const options = { ...fixture.options, agent: "cursor" as const, model: "explicit-test-model", permissionMode: "approve-all" as const, environment: { CURSOR_API_KEY: "test" } };
-    await expect(AcpxRuntimeHost.open(options, fixture.dependencies({ openRuntime }))).rejects.toThrow(/Cursor mode does not match/);
+    await expect(AcpxRuntimeHost.open(options, fixture.dependencies({ openRuntime }))).rejects.toThrow(/Provider mode does not match/);
     expect(port.close).toHaveBeenCalled();
     openRuntime.mockClear();
-    await expect(AcpxRuntimeHost.open({ ...options, agent: "codex", model: "gpt-5.6-sol", cursorMode: "plan" }, fixture.dependencies({ openRuntime }))).rejects.toThrow(/only supported/);
+    await expect(AcpxRuntimeHost.open({ ...options, agent: "codex", model: "gpt-5.6-sol", mode: "plan" }, fixture.dependencies({ openRuntime }))).rejects.toThrow(/does not support configurable/);
     expect(openRuntime).not.toHaveBeenCalled();
   });
 

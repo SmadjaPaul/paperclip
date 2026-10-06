@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::acpx_provider_session::{
     AcpxPermissionMode, AcpxProviderRuntimePolicy, AcpxProviderSession, AcpxProviderSessionConfig,
-    AcpxProviderSessionIdentity, AcpxTurnControlCapabilities, CursorMode,
+    AcpxProviderSessionIdentity, AcpxTurnControlCapabilities,
 };
 use crate::acpx_sidecar_transport::AcpxSidecarTransportConfig;
 #[cfg(test)]
@@ -136,7 +136,7 @@ struct AcpxProviderDescriptor {
     instructions: String,
     permission_mode: AcpxPermissionMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    cursor_mode: Option<CursorMode>,
+    mode: Option<String>,
     permission_mode_pinned: bool,
     #[serde(default)]
     provider_policy: Option<AcpxProviderRuntimePolicy>,
@@ -248,7 +248,11 @@ impl AcpxProviderDescriptor {
             || self.model.trim().is_empty()
             || self.model.len() > 240
             || self.model.contains('\0')
-            || ((self.agent == "cursor") != self.cursor_mode.is_some())
+            || self.mode.as_ref().is_some_and(|mode| {
+                mode.trim().is_empty()
+                    || mode.chars().count() > 240
+                    || mode.chars().any(char::is_control)
+            })
             || (matches!(self.agent.as_str(), "pi" | "cursor" | "copilot")
                 && self.provider_policy.is_none())
             || self.agent_server_package != expected.1
@@ -344,7 +348,7 @@ impl AcpxProviderDescriptor {
             normalized_session_id: self.normalized_session_id.clone(),
             working_directory: PathBuf::from(&self.cwd),
             permission_mode: self.permission_mode,
-            cursor_mode: self.cursor_mode,
+            mode: self.mode.clone(),
             permission_mode_pinned: self.permission_mode_pinned,
             provider_policy: self.provider_policy.clone(),
             system_instructions: self.instructions.clone(),
@@ -445,8 +449,8 @@ impl AcpxProviderDescriptor {
             "acpxRecordId": identity.map(|value| value.acpx_record_id.as_str()),
             "permissionMode": self.permission_mode,
         });
-        if let Some(mode) = self.cursor_mode {
-            descriptor["cursorMode"] = json!(mode);
+        if let Some(mode) = self.mode.as_deref() {
+            descriptor["mode"] = json!(mode);
         }
         descriptor
     }
@@ -579,10 +583,10 @@ impl AcpxDurableState {
                 .validate()
                 .map_err(|error| DurableRunnerError::invalid(error.to_string()))?;
             if identity.profile_digest != self.descriptor.command_digest
-                || identity.cursor_mode != self.descriptor.cursor_mode
+                || identity.mode != self.descriptor.mode
             {
                 return Err(DurableRunnerError::invalid(
-                    "ACPX durable identity no longer matches its qualified profile or Cursor mode",
+                    "ACPX durable identity no longer matches its qualified profile or provider mode",
                 ));
             }
         }
@@ -2377,7 +2381,7 @@ mod tests {
             "runtimeContext": null,
         });
         if agent == "cursor" {
-            value["cursorMode"] = json!("agent");
+            value["mode"] = json!("agent");
             value["providerPolicy"] = json!({"readOnly": true});
         }
         value
@@ -2549,7 +2553,7 @@ mod tests {
                 requested_model: descriptor.model.clone(),
                 effective_model: descriptor.model.clone(),
                 permission_mode: Some(descriptor.permission_mode),
-                cursor_mode: descriptor.cursor_mode,
+                mode: descriptor.mode.clone(),
                 provider_lifetime_fence_candidates: [60_001, 60_002, 60_003],
             };
             let operations = Vec::new();
@@ -2799,7 +2803,7 @@ mod tests {
             requested_model: "gpt-5.6-sol".to_owned(),
             effective_model: "gpt-5.6-sol".to_owned(),
             permission_mode: Some(AcpxPermissionMode::ApproveReads),
-            cursor_mode: None,
+            mode: None,
             provider_lifetime_fence_candidates: [60_001, 60_002, 60_003],
         };
 
@@ -2859,7 +2863,7 @@ mod tests {
             assert!(missing.validate(&context()).is_err());
             value["providerPolicy"] = json!({"readOnly":true});
             if agent == "cursor" {
-                value["cursorMode"] = json!("agent");
+                value["mode"] = json!("agent");
             }
             let valid: AcpxProviderDescriptor = serde_json::from_value(value.clone()).unwrap();
             valid.validate(&context()).unwrap();
@@ -2910,7 +2914,7 @@ mod tests {
                 serde_json::from_value(previous_contract).unwrap();
             assert!(previous_contract.validate(&context()).is_err());
             if agent == "cursor" {
-                assert_eq!(valid.public_descriptor(None)["cursorMode"], json!("agent"));
+                assert_eq!(valid.public_descriptor(None)["mode"], json!("agent"));
                 let mut previous_v4 = value.clone();
                 previous_v4["commandDigest"] = json!(
                     "sha256:b1440d559ebc4eef5c7a582f1c81fc153270cfbafa1731a8ee76d83713bdf61b"
@@ -2919,19 +2923,28 @@ mod tests {
                     serde_json::from_value(previous_v4).unwrap();
                 assert!(previous_v4.validate(&context()).is_err());
                 let mut missing = value.clone();
-                missing.as_object_mut().unwrap().remove("cursorMode");
+                missing.as_object_mut().unwrap().remove("mode");
                 let missing: AcpxProviderDescriptor = serde_json::from_value(missing).unwrap();
-                assert!(missing.validate(&context()).is_err());
-                let mut unknown = value.clone();
-                unknown["cursorMode"] = json!("autopilot");
-                assert!(serde_json::from_value::<AcpxProviderDescriptor>(unknown).is_err());
+                missing.validate(&context()).unwrap();
+                let mut opaque = value.clone();
+                opaque["mode"] = json!("architect");
+                serde_json::from_value::<AcpxProviderDescriptor>(opaque)
+                    .unwrap()
+                    .validate(&context())
+                    .unwrap();
+                let mut invalid = value.clone();
+                invalid["mode"] = json!("");
+                assert!(serde_json::from_value::<AcpxProviderDescriptor>(invalid)
+                    .unwrap()
+                    .validate(&context())
+                    .is_err());
             } else {
-                assert!(valid.public_descriptor(None).get("cursorMode").is_none());
+                assert!(valid.public_descriptor(None).get("mode").is_none());
                 let mut wrong_agent = value.clone();
-                wrong_agent["cursorMode"] = json!("plan");
-                let wrong_agent: AcpxProviderDescriptor =
+                wrong_agent["mode"] = json!("plan");
+                let other_agent: AcpxProviderDescriptor =
                     serde_json::from_value(wrong_agent).unwrap();
-                assert!(wrong_agent.validate(&context()).is_err());
+                other_agent.validate(&context()).unwrap();
             }
 
             for field in ["model", "agentServerVersion", "commandDigest"] {
@@ -3061,7 +3074,7 @@ mod tests {
             requested_model: original_descriptor.model.clone(),
             effective_model: original_descriptor.model.clone(),
             permission_mode: Some(original_descriptor.permission_mode),
-            cursor_mode: original_descriptor.cursor_mode,
+            mode: original_descriptor.mode.clone(),
             provider_lifetime_fence_candidates: [60_001, 60_002, 60_003],
         };
         let operations = Vec::new();
@@ -3282,7 +3295,7 @@ mod tests {
             requested_model: original_descriptor.model.clone(),
             effective_model: original_descriptor.model.clone(),
             permission_mode: Some(original_descriptor.permission_mode),
-            cursor_mode: original_descriptor.cursor_mode,
+            mode: original_descriptor.mode.clone(),
             provider_lifetime_fence_candidates: [60_001, 60_002, 60_003],
         };
         let operations = Vec::new();
@@ -3529,7 +3542,7 @@ mod tests {
             requested_model: descriptor.model.clone(),
             effective_model: descriptor.model.clone(),
             permission_mode: Some(descriptor.permission_mode),
-            cursor_mode: descriptor.cursor_mode,
+            mode: descriptor.mode.clone(),
             provider_lifetime_fence_candidates,
         };
         let operations = Vec::new();
@@ -3701,7 +3714,7 @@ mod tests {
             requested_model: provider_descriptor.model.clone(),
             effective_model: provider_descriptor.model.clone(),
             permission_mode: Some(provider_descriptor.permission_mode),
-            cursor_mode: provider_descriptor.cursor_mode,
+            mode: provider_descriptor.mode.clone(),
             provider_lifetime_fence_candidates,
         });
         state.provider_exit_unconfirmed = true;

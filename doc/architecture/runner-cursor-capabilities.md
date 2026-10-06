@@ -443,9 +443,13 @@ are still required before qualification.
 ## Cursor profile v5: admitted native session modes (2026-09-29)
 
 The explicit `acpxSessionMode` configuration selects `agent` (the default),
-`plan`, or `ask` for Cursor. The provider/sidecar field is `cursorMode`; it is
-separate from ACPX's persistent/oneshot session lifecycle. Other providers reject
-this field. Mode is included in the immutable session key and recovery identity;
+`plan`, or `ask` for Cursor. Historical v5 qualification snapshots used
+`cursorMode`; those saved results retain their original identities. The current
+production port uses the generic provider/sidecar `mode` identifier, separate from ACPX's persistent/oneshot session lifecycle. Shared
+TypeScript/Rust transport and recovery code treat it as an opaque bounded string.
+Each provider adapter owns supported values, defaults, native translation and
+acknowledgement; currently only the Cursor adapter qualifies configurable modes.
+Mode is included in the immutable session key and recovery identity;
 a missing or changed mode cannot reopen an existing v5 session.
 
 Admission checks the pinned native `session/new` or `session/load` response's

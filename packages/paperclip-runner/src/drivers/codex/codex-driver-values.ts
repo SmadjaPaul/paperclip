@@ -1,3 +1,4 @@
+import { isProviderMode } from "../../contracts/provider-mode.js";
 import type { PersistedHarnessProviderIdentity } from "../../contracts/harness-driver.js";
 import type { NativeUserMessage } from "../../contracts/types.js";
 import {
@@ -78,9 +79,9 @@ export function parseProviderIdentity(
       "ACPX provider identity contains an invalid permission mode",
     );
   }
-  const cursorMode = identity.cursorMode;
-  if (cursorMode !== undefined && cursorMode !== "agent" && cursorMode !== "plan" && cursorMode !== "ask") {
-    throw new Error("ACPX provider identity contains an invalid Cursor mode");
+  const mode = identity.mode;
+  if (mode !== undefined && !isProviderMode(mode)) {
+    throw new Error("ACPX provider identity contains an invalid provider mode");
   }
   const fenceCandidates = identity.providerLifetimeFenceCandidates;
   if (
@@ -107,7 +108,7 @@ export function parseProviderIdentity(
     requestedModel: identity.requestedModel as string,
     effectiveModel: identity.effectiveModel as string,
     ...(permissionMode === undefined ? {} : { permissionMode }),
-    ...(cursorMode === undefined ? {} : { cursorMode }),
+    ...(mode === undefined ? {} : { mode }),
     providerLifetimeFenceCandidates: fenceCandidates as [
       number,
       number,
