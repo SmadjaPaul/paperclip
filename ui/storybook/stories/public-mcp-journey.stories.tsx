@@ -50,7 +50,10 @@ export const NavigationCheck: Story = { play: async ({ canvasElement }) => {
   await userEvent.click(await c.findByRole("link", { name: "Open Experimental settings" }));
   await userEvent.click(await c.findByRole("switch", { name: "Toggle assistant connections experimental setting" }));
   await userEvent.click(await c.findByRole("link", { name: "Set up an assistant connection" }));
-  await c.findByRole("heading", { name: "1. Add Paperclip to OpenCode" });
+  await expect(await c.findByRole("button", { name: "Copy invitation" })).toBeVisible();
+  await userEvent.click(c.getByText("Set up manually"));
   await expect(c.getByText("opencode mcp auth paperclip")).toBeVisible();
   await expect(c.getByText(/No assistants connected/)).toBeVisible();
 } };
+
+export const ManualSetup: Story = { ...OpenCodeSetup, play: async ({ canvasElement }) => { await userEvent.click(await within(canvasElement).findByText("Set up manually")); } };

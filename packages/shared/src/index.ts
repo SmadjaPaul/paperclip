@@ -2817,3 +2817,4 @@ export * from "./types/skill-source.js";
 export * from "./validators/skill-source.js";
 export * from "./github-skill-repository.js";
 export * from "./public-mcp.js";
+export * from "./mcp-setup.js";

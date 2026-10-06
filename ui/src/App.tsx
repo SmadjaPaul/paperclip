@@ -98,7 +98,7 @@ import { NewAgent } from "./pages/NewAgent";
 import { AuthPage } from "./pages/Auth";
 import { BoardClaimPage } from "./pages/BoardClaim";
 import { AssistantConnection } from "./pages/apps/AssistantConnection";
-import { McpConnectPage, AssistantConnectionsPage } from "./pages/McpConnect";
+import { McpConnectPage, McpDevicePage, AssistantConnectionsPage } from "./pages/McpConnect";
 import { CliAuthPage } from "./pages/CliAuth";
 import { InviteLandingPage } from "./pages/InviteLanding";
 import { JoinRequestQueue } from "./pages/JoinRequestQueue";
@@ -756,6 +756,7 @@ export function App() {
         <Route path="auth" element={<AuthPage />} />
         <Route path="board-claim/:token" element={<BoardClaimPage />} />
         <Route path="mcp-connect/:id" element={<McpConnectPage />} />
+        <Route path="mcp-device" element={<McpDevicePage />} />
         <Route path="assistant-connections" element={<AssistantConnectionsPage />} />
         <Route path="cli-auth/:id" element={<CliAuthPage />} />
         <Route path="invite/:token" element={<InviteLandingPage />} />

@@ -9,6 +9,7 @@ export const mcpOauthClients = pgTable("mcp_oauth_clients", {
   name: text("name").notNull(),
   registrationSourceHash: text("registration_source_hash"),
   redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
+  grantTypes: jsonb("grant_types").$type<string[]>().notNull().default(["authorization_code", "refresh_token"]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -58,6 +59,27 @@ export const mcpOauthTokens = pgTable("mcp_oauth_tokens", {
   uniqueIndex("mcp_oauth_tokens_hash_uq").on(t.tokenHash),
   index("mcp_oauth_tokens_grant_idx").on(t.grantId),
   index("mcp_oauth_tokens_expiry_idx").on(t.expiresAt),
+]);
+
+export const mcpOauthDeviceRequests = pgTable("mcp_oauth_device_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: text("client_id").notNull().references(() => mcpOauthClients.id, { onDelete: "cascade" }),
+  deviceCodeHash: text("device_code_hash").notNull(),
+  userCodeHash: text("user_code_hash").notNull(),
+  resource: text("resource").notNull(),
+  scopes: jsonb("scopes").$type<string[]>().notNull(),
+  requestedCompanyId: uuid("requested_company_id"),
+  sourceHash: text("source_hash").notNull(),
+  status: text("status").$type<"pending" | "approved" | "denied" | "consumed">().notNull().default("pending"),
+  grantId: uuid("grant_id").references(() => mcpOauthGrants.id, { onDelete: "cascade" }),
+  intervalSeconds: integer("interval_seconds").notNull().default(5),
+  nextPollAt: timestamp("next_poll_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("mcp_oauth_device_code_uq").on(t.deviceCodeHash),
+  uniqueIndex("mcp_oauth_user_code_uq").on(t.userCodeHash),
+  index("mcp_oauth_device_expiry_idx").on(t.expiresAt),
 ]);
 
 export const mcpMutationReceipts = pgTable("mcp_mutation_receipts", {

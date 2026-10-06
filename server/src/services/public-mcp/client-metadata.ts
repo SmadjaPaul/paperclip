@@ -1,0 +1,59 @@
+import { z } from "zod";
+import { guardedRemoteHttpFetch } from "../remote-http-fetch.js";
+
+export function validMcpRedirect(value: string) {
+  try {
+    const url = new URL(value);
+    return !url.username && !url.password && !url.hash
+      && (url.protocol === "https:" || (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)));
+  } catch { return false; }
+}
+const metadataSchema = z.object({
+  client_id: z.string().max(2048), client_name: z.string().trim().min(1).max(100),
+  redirect_uris: z.array(z.string().max(2048).refine(validMcpRedirect)).max(10),
+  token_endpoint_auth_method: z.literal("none").default("none"),
+  grant_types: z.array(z.enum(["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"])).default(["authorization_code"]),
+  response_types: z.array(z.literal("code")).default(["code"]),
+});
+type Metadata = z.infer<typeof metadataSchema>;
+export type MetadataFetch = (url: URL, init: RequestInit) => Promise<Response>;
+const guardedFetch: MetadataFetch = (url, init) => guardedRemoteHttpFetch(url, init, {
+  allowPrivateNetwork: false, error: () => new Error("Client metadata URL is unavailable."),
+  connectTimeoutMs: 5000, responseTimeoutMs: 5000,
+});
+
+/** Client names are descriptive, not a verified brand identity. */
+export function createClientMetadataResolver(fetcher: MetadataFetch = guardedFetch) {
+  const cache = new Map<string, { value: Metadata; expiresAt: number }>();
+  return async (id: string): Promise<Metadata> => {
+    const url = new URL(id);
+    if (url.protocol !== "https:" || url.pathname === "/" || url.username || url.password || url.hash || id.length > 2048) throw new Error("Invalid client metadata URL.");
+    const now = Date.now();
+    for (const [key, value] of cache) if (value.expiresAt <= now) cache.delete(key);
+    const hit = cache.get(id);
+    if (hit) return hit.value;
+    const response = await fetcher(url, { redirect: "error", headers: { Accept: "application/json" }, signal: AbortSignal.timeout(5000) });
+    if (!response.ok || response.status >= 300 || !/^application\/(?:[\w.+-]+\+)?json(?:\s*;|$)/i.test(response.headers.get("content-type") ?? "")) {
+      await response.body?.cancel(); throw new Error("Invalid client metadata response.");
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Empty client metadata.");
+    const chunks: Uint8Array[] = []; let size = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break;
+        size += value.byteLength;
+        if (size > 32_768) throw new Error("Client metadata is too large.");
+        chunks.push(value);
+      }
+    } finally { await reader.cancel().catch(() => {}); }
+    const value = metadataSchema.parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    if (value.client_id !== id) throw new Error("Client metadata ID mismatch.");
+    const control = response.headers.get("cache-control") ?? "";
+    const maxAge = /(?:^|,)\s*max-age=(\d+)/i.exec(control)?.[1];
+    const ttl = /(?:no-store|no-cache)/i.test(control) ? 0 : Math.min(300, maxAge ? Number(maxAge) : 60) * 1000;
+    if (cache.size >= 1000) cache.delete(cache.keys().next().value!);
+    if (ttl > 0) cache.set(id, { value, expiresAt: now + ttl });
+    return value;
+  };
+}

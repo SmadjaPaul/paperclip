@@ -6,6 +6,7 @@ import type { McpConnection, McpConnectionRequest } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { CompanyPatternIcon } from "@/components/CompanyPatternIcon";
 import { api } from "../api/client";
 
@@ -14,27 +15,43 @@ export function McpConnectPage() {
   return <McpConnectRequest key={id} id={id} />;
 }
 
-function McpConnectRequest({ id }: { id: string }) {
+export function McpDevicePage({ initialCode }: { initialCode?: string } = {}) {
+  const [code, setCode] = useState(initialCode ?? new URLSearchParams(window.location.search).get("user_code") ?? "");
+  const [submitted, setSubmitted] = useState(code);
+  if (submitted) return <McpConnectRequest key={submitted} id={submitted} device />;
+  return <div className="mx-auto max-w-xl py-10"><Card className="space-y-4 p-6"><Paperclip className="size-8" /><h1 className="text-xl font-semibold">Connect your assistant</h1>
+    <form className="space-y-4" onSubmit={event => { event.preventDefault(); setSubmitted(code.trim()); }}>
+      <label htmlFor="device-code" className="text-sm">Enter the code shown by your assistant</label>
+      <Input id="device-code" autoComplete="off" value={code} onChange={event => setCode(event.target.value)} required maxLength={12} />
+      <div className="flex justify-end"><Button type="submit">Continue</Button></div>
+    </form></Card></div>;
+}
+
+function McpConnectRequest({ id, device = false }: { id: string; device?: boolean }) {
   const [companyId, setCompanyId] = useState("");
   const [writeEnabled, setWriteEnabled] = useState(true);
-  const request = useQuery({ queryKey: ["mcp-request", id], queryFn: () => api.get<McpConnectionRequest>(`/mcp/requests/${encodeURIComponent(id)}`), retry: false });
+  const [deviceResult, setDeviceResult] = useState<"approved" | "denied" | null>(null);
+  const request = useQuery({ queryKey: [device ? "mcp-device" : "mcp-request", id], queryFn: () => api.get<McpConnectionRequest>(device ? `/mcp/device?user_code=${encodeURIComponent(id)}` : `/mcp/requests/${encodeURIComponent(id)}`), retry: false });
   const data = request.data;
   const selectedCompanyId = data?.requestedCompanyId ?? companyId;
   const company = data?.companies.find((item) => item.id === selectedCompanyId);
   const allowWrites = Boolean(data?.requestedWrite && company?.canWrite && writeEnabled);
   const consent = useMutation({
-    mutationFn: (decision: "approve" | "deny") => api.post<{ redirectUrl: string }>(`/mcp/requests/${encodeURIComponent(id)}/consent`, { decision, companyId: selectedCompanyId || undefined, allowWrites }),
-    onSuccess: ({ redirectUrl }) => { window.location.assign(redirectUrl); },
+    mutationFn: (decision: "approve" | "deny") => api.post<{ redirectUrl?: string; status?: "approved" | "denied" }>(device ? "/mcp/device/consent" : `/mcp/requests/${encodeURIComponent(id)}/consent`, { decision, companyId: selectedCompanyId || undefined, allowWrites, ...(device ? { userCode: id } : {}) }),
+    onSuccess: ({ redirectUrl, status }) => { if (device && status) setDeviceResult(status); else if (redirectUrl) window.location.assign(redirectUrl); },
   });
+  if (deviceResult) return <div className="mx-auto max-w-xl py-10"><Card className="block space-y-4 p-6"><Paperclip className="size-8" /><h1 className="text-xl font-semibold">{deviceResult === "approved" ? "Access approved" : "Connection declined"}</h1><p className="text-sm">{deviceResult === "approved" ? "Return to your assistant. It will finish connecting automatically." : "No access was granted. You can start a new connection from your assistant."}</p><Button variant="outline" asChild><Link to="/">Back to Paperclip</Link></Button></Card></div>;
+  const returnPath = device ? `/mcp-device?user_code=${encodeURIComponent(id)}` : `/mcp-connect/${id}`;
   return <div className="mx-auto max-w-xl py-10">
     <Card className="block space-y-4 p-6">
       <Paperclip className="size-8 text-foreground" role="img" aria-label="Paperclip" />
       <h1 className="text-xl font-semibold">Connect your assistant to Paperclip</h1>
-      {data && <p className="break-words text-sm">Access for <bdi className="font-medium">{data.clientName}</bdi> · <bdi className="text-muted-foreground">{data.redirectOrigin}</bdi></p>}
+      {data && <p className="break-words text-sm">Access for <bdi className="font-medium">{data.clientName}</bdi>{(data.clientOrigin || data.redirectOrigin) && <> · <bdi className="text-muted-foreground">{data.clientOrigin || data.redirectOrigin}</bdi></>}</p>}
+      {device && <p className="text-sm">Confirm this matches the code shown by your assistant: <strong className="font-mono">{id.toUpperCase()}</strong></p>}
       {request.isPending && <p className="text-sm text-muted-foreground">Loading connection request…</p>}
       {request.error && <p className="text-sm text-destructive">{request.error.message} Start a new connection from your assistant.</p>}
       {data && <>
-        {data.requiresSignIn ? <Button asChild><Link to={`/auth?next=${encodeURIComponent(`/mcp-connect/${id}`)}`}>Sign in / Create account</Link></Button> : <>
+        {data.requiresSignIn ? <Button asChild><Link to={`/auth?next=${encodeURIComponent(returnPath)}`}>Sign in / Create account</Link></Button> : <>
           {data.requestedCompanyId ? <div className="flex items-center gap-4 rounded-md border border-border p-4">
             {company && <CompanyPatternIcon companyName={company.name} logoUrl={company.logoUrl} className="size-14 shrink-0 rounded-lg text-xl" />}
             <div className="min-w-0 space-y-1">

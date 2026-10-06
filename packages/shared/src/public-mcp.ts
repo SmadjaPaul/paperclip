@@ -12,6 +12,7 @@ export interface McpConnectionRequest {
   id: string;
   clientName: string;
   redirectOrigin: string;
+  clientOrigin?: string | null;
   requestedWrite: boolean;
   offlineAccess: boolean;
   requiresSignIn: boolean;
@@ -24,6 +25,8 @@ export interface McpConnectionRequest {
 export interface McpConnectionSetup {
   enabled: boolean;
   serverUrl: string;
+  invitationUrl: string;
+  invitation: string;
 }
 
 export interface McpConnection {

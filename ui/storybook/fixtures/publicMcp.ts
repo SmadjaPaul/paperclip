@@ -18,6 +18,7 @@ export interface PublicMcpFixture {
   request?: Partial<McpConnectionRequest>;
   loading?: boolean;
   unavailable?: boolean;
+  deviceExpired?: boolean;
   connectionsUnavailable?: boolean;
   pending?: boolean;
   mutationError?: boolean;
@@ -48,12 +49,14 @@ export function installPublicMcpFixture(fixture: PublicMcpFixture = {}) {
       if (path === "/api/instance/settings/experimental") return Response.json(settings);
       if (path === "/api/mcp/setup") return Response.json({ enabled: settings.enablePublicMcp, serverUrl: "https://paperclip.example/mcp/paperclip" });
       if (path === "/api/mcp/connections") return fixture.connectionsUnavailable ? error("Connection status is unavailable.") : Response.json(rows);
+      if (path === "/api/mcp/device") return fixture.deviceExpired ? error("This code is expired. Start a new connection from your assistant.", 404) : Response.json({ ...request, clientName: "Paperclip CLI (device)", redirectOrigin: "", ...fixture.request });
       if (path === `/api/mcp/requests/${request.id}`) return Response.json({ ...request, ...fixture.request });
     } else {
       if (fixture.pending) return new Promise<Response>(() => {});
       if (fixture.mutationError) return error("Could not save this change. Please try again.");
       if (path.endsWith("/consent") && method === "POST") {
         consentSubmission(JSON.parse(String(init?.body)));
+        if (path === "/api/mcp/device/consent") return Response.json({ status: JSON.parse(String(init?.body)).decision === "approve" ? "approved" : "denied" });
         // Exercise the real redirect without leaving the local Storybook frame.
         return Response.json({ redirectUrl: `${location.href.split("#")[0]}#storybook-consent-recorded` });
       }

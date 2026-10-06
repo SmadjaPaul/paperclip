@@ -46,10 +46,19 @@ is selected or impersonated. The entry is discoverable while disabled, but its
 setup instructions require the experimental setting. Follow **Open Experimental
 settings**, enable **Assistant connections (MCP)**, then return to setup.
 
-Choose Codex, Claude Code, OpenCode, or Other. The page supplies the canonical
-instance URL and the client’s setup and sign-in commands. Run the sign-in action
-in that client to open Paperclip’s browser consent page. A consent URL is generated
-for that OAuth attempt; there is no reusable consent link to copy from Paperclip.
+Click **Copy invitation** and paste the message into your assistant. **Copy link**
+copies the same public setup URL. The link contains an optional organization ID,
+never a credential. It does not reveal the organization before sign-in or grant
+access. Approval happens when the assistant starts its connection. The setup page
+is server-rendered at `/mcp/setup`; `/mcp/setup.md` and `Accept: text/markdown`
+provide the same version-aware instructions for assistants without browser access.
+
+**Set up manually** contains commands for Codex, Claude Code, OpenCode, browser
+connectors and headless clients. Browser clients may require adding a connector
+in their settings; reading an invitation cannot install one. A running client may
+need a restart or a fresh conversation to load its tools. Verify the organization
+with `paperclip_connection` before doing work. Keep existing client configuration,
+and use a distinct server name when another Paperclip instance is already present.
 
 For OpenCode, merge the displayed `mcp.paperclip` entry into your project’s
 `opencode.json`, run `opencode mcp auth paperclip` there, approve the organization,
@@ -62,7 +71,8 @@ read/write access, and revoke access. The list refreshes after consent and only
 shows your grants for the selected organization. The legacy
 `/assistant-connections` URL remains available for account-wide management.
 
-`GET /api/mcp/setup` returns the live experimental gate and canonical endpoint to
+`GET /api/mcp/setup` returns the live experimental gate, canonical endpoint,
+invitation URL and copyable invitation to
 authenticated browser/Cloud users, including while disabled. It cannot grant
 access, accepts no destination URL, never reflects forwarded hosts, and is not
 available to agent keys, MCP bearer tokens, or implicit local authority.
@@ -99,6 +109,39 @@ teach team review, delegation and result retrieval. Build them for the same
 endpoint before installing locally. Public ChatGPT/Codex and Claude directory
 installation requires the separate deployment and submission work below.
 
+## Headless device login and stdio bridge
+
+With a CLI build that includes this feature:
+
+```sh
+paperclipai mcp login --device --url https://YOUR-PAPERCLIP-HOST/mcp/paperclip
+paperclipai mcp proxy --url https://YOUR-PAPERCLIP-HOST/mcp/paperclip
+```
+
+Add `--company <organization UUID>` to login to restrict the consent choice.
+Login prints a human verification URL and code. Open that URL, sign in, compare
+the code, and approve or decline. The private device code and issued tokens stay
+inside the CLI. Configure the second command as a local stdio MCP server in a host
+without native device support. Do not copy tokens into chat or MCP configuration.
+
+The CLI stores credentials separately under `$PAPERCLIP_HOME/mcp` (default
+`~/.paperclip/mcp`), with a private directory and files, atomic replacement and a
+cross-process refresh mutex. It forwards only to the exact bound resource and
+rejects redirects. A failed write is never retried automatically because it may
+already have completed. Revoke access from Connections when finished.
+
+The device endpoint is `/mcp/oauth/device_authorization`, browser verification is
+`/mcp-device`, and the token endpoint accepts the RFC 8628 device grant. Pending
+requests have separately hashed codes, ten-minute expiry, five-second initial
+polling, persistent backoff and atomic redemption. Shared database quotas bound
+new requests. Consent uses the same company, role, scope, grant, audit and
+revocation checks as browser OAuth. This is human authorization, not client
+credentials or agent impersonation. Both flows require the experimental setting.
+
+Tenant Cloud gateways forward setup and device protocol requests without browser
+cookies. Browser approval remains authenticated. The central directory broker
+does not advertise device or CIMD support until separately implemented.
+
 ## Identity and consent
 
 - Protected-resource discovery: `/.well-known/oauth-protected-resource/mcp/paperclip`.
@@ -109,10 +152,18 @@ installation requires the separate deployment and submission work below.
 - Browser consent: `/mcp-connect/:requestId`.
 - User connection management: `/assistant-connections`.
 
-Consent identifies the registered client and callback origin. Client names are
+Consent identifies the registered client and its identifying origin. Client names are
 self-reported; verify the receiving domain before approving an unexpected request.
 The hosted organization chooser also identifies the original client and callback
 origin before its tenant handoff.
+
+Client ID Metadata Documents (CIMD) and dynamic registration both support public
+clients. CIMD uses an HTTPS client ID URL with an exact matching `client_id`,
+required registered redirects, a 32 KiB response limit, a bounded cache, and
+guarded DNS/HTTP fetching that rejects private networks and redirects. Supplied
+names are not proof of a brand identity. Authorization responses include `iss`.
+Resource metadata advertises resource scopes; refresh capability is advertised
+in authorization-server metadata.
 
 Dynamic registration uses public clients, exact registered HTTPS redirect URIs
 (or HTTP loopback), authorization code flow, S256 PKCE and exact resource

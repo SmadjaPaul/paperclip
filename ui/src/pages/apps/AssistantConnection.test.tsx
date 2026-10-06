@@ -4,7 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AssistantConnection, AssistantConnectionCard } from "./AssistantConnection";
-const mocks = vi.hoisted(() => ({ setup: vi.fn(), connections: vi.fn(), revoke: vi.fn(), breadcrumbs: vi.fn() }));
+const mocks = vi.hoisted(() => ({ setup: vi.fn(), connections: vi.fn(), revoke: vi.fn(), breadcrumbs: vi.fn(), copy: vi.fn() }));
+vi.mock("@/lib/clipboard", () => ({ copyTextToClipboard: mocks.copy }));
 vi.mock("@/api/publicMcp", () => ({ publicMcpApi: mocks }));
 vi.mock("@/context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "butter", selectedCompany: { id: "butter", name: "Butter", logoUrl: null } }) }));
 vi.mock("@/context/BreadcrumbContext", () => ({ useBreadcrumbs: () => ({ setBreadcrumbs: mocks.breadcrumbs }) }));
@@ -26,6 +27,17 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.clearAllMocks(); });
 describe("assistant setup from Connections", () => {
+  it("copies a scoped instruction link with no credential and keeps manual configuration collapsed", async () => {
+    await render();
+    expect(container.querySelector("details")?.open).toBe(false);
+    await act(async () => Array.from(container.querySelectorAll("button")).find(b => b.textContent === "Copy invitation")!.click());
+    expect(mocks.copy).toHaveBeenLastCalledWith(expect.stringContaining("https://canonical.example/mcp/setup?company=butter"));
+    expect(mocks.copy).toHaveBeenLastCalledWith(expect.stringContaining("after I approve"));
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Invitation copied");
+    await act(async () => Array.from(container.querySelectorAll("button")).find(b => b.textContent === "Copy link")!.click());
+    expect(mocks.copy).toHaveBeenLastCalledWith("https://canonical.example/mcp/setup?company=butter");
+    expect(mocks.revoke).not.toHaveBeenCalled();
+  });
   it("surfaces catalog status failures and recovers without claiming there are no connections", async () => {
     mocks.connections.mockRejectedValue(new Error("offline"));
     await render(<AssistantConnectionCard onNavigate={vi.fn()} />);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { assistantClientNames, mcpInvitation, mcpSetupSteps, mcpSetupUrl, type AssistantClient } from "@paperclipai/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink, Paperclip } from "lucide-react";
 import { publicMcpApi } from "@/api/publicMcp";
@@ -13,8 +14,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const ASSISTANT_CONNECTION_PATH = "/apps/assistant-connection";
 const connectionsKey = ["mcp-connections"];
-type Assistant = "codex" | "claude" | "opencode" | "other";
-const assistants: Record<Assistant, string> = { codex: "Codex", claude: "Claude Code", opencode: "OpenCode", other: "Other" };
+type Assistant = AssistantClient;
+const assistants = assistantClientNames;
 
 function useConnections(poll = false) {
   const { selectedCompanyId } = useCompany();
@@ -79,6 +80,7 @@ export function AssistantConnection({ initialAssistant = "codex" }: { initialAss
   const { selectedCompany, selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const client = useQueryClient();
+  const [copyResult, setCopyResult] = useState("");
   const [assistant, setAssistant] = useState<Assistant>(initialAssistant);
   const setup = useQuery({ queryKey: ["mcp-setup"], queryFn: publicMcpApi.setup, retry: false, refetchOnWindowFocus: "always", refetchOnMount: "always" });
   const connections = useConnections(setup.data?.enabled === true);
@@ -89,9 +91,12 @@ export function AssistantConnection({ initialAssistant = "codex" }: { initialAss
   }, [setBreadcrumbs]);
   if (!selectedCompanyId || !selectedCompany) return <p className="text-sm text-muted-foreground">Select an organization to connect an assistant.</p>;
   const serverUrl = setup.data?.serverUrl ?? "";
-  // A canonical server origin is supplied by Paperclip, never inferred from a proxy or a browser query parameter.
-  const quotedUrl = `'${serverUrl.replaceAll("'", "'\"'\"'")}'`;
-  const config = JSON.stringify({ mcp: { paperclip: { type: "remote", url: serverUrl, enabled: true, oauth: { scope: "paperclip:read paperclip:write offline_access" } } } }, null, 2);
+  const invitationUrl = serverUrl ? mcpSetupUrl(serverUrl, selectedCompanyId) : "";
+  const invitation = serverUrl ? mcpInvitation(serverUrl, { id: selectedCompanyId, name: selectedCompany.name }) : "";
+  async function copyInvitation(value: string, label: string) {
+    try { await copyTextToClipboard(value); setCopyResult(`${label} copied`); }
+    catch { setCopyResult("Couldn’t copy. Open setup instructions to copy the text."); }
+  }
   const active = connections.rows.filter(row => !row.revokedAt);
   return <div className="max-w-3xl space-y-6 pb-8">
     <header className="space-y-4">
@@ -109,25 +114,25 @@ export function AssistantConnection({ initialAssistant = "codex" }: { initialAss
       <Button variant="outline" asChild><Link to="/company/settings/instance/experimental">Open Experimental settings</Link></Button>
     </section>}
     {setup.data?.enabled && <>
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">Choose your assistant</h2>
+      <section className="space-y-4" aria-label="Invite your assistant">
+        <p className="text-sm text-muted-foreground">Paste an invitation into your assistant. It will help set up the connection and ask you to approve access in Paperclip.</p>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <Button variant="outline" onClick={() => void copyInvitation(invitationUrl, "Link")}>Copy link</Button>
+          <Button onClick={() => void copyInvitation(invitation, "Invitation")}><Copy className="size-4" />Copy invitation</Button>
+        </div>
+        <p role="status" className="text-xs text-muted-foreground">{copyResult}</p>
+        <a className="inline-flex items-center gap-1 text-sm underline" href={invitationUrl} target="_blank" rel="noreferrer">Open setup instructions <ExternalLink className="size-3" /></a>
+      </section>
+      <details className="space-y-4 text-sm">
+        <summary className="cursor-pointer text-muted-foreground">Set up manually</summary>
         <Tabs value={assistant} onValueChange={value => setAssistant(value as Assistant)}><TabsList className="flex h-auto flex-wrap justify-start">{Object.entries(assistants).map(([value, name]) => <TabsTrigger key={value} value={value}>{name}</TabsTrigger>)}</TabsList></Tabs>
-      </section>
-      <section className="space-y-3" aria-label={`Set up ${assistants[assistant]}`}>
-        <h2 className="text-sm font-semibold">1. Add Paperclip to {assistants[assistant] === "Other" ? "your assistant" : assistants[assistant]}</h2>
-        {assistant === "opencode" ? <><p className="text-sm text-muted-foreground">Add this entry to your project’s opencode.json. Keep any other settings you already use.</p><CopyValue value={config} label="OpenCode configuration" /></>
-          : assistant === "other" ? <><p className="text-sm text-muted-foreground">Add a remote MCP server using this URL. Choose OAuth / browser sign-in when your assistant asks how to connect.</p><CopyValue value={serverUrl} label="MCP server URL" /></>
-          : <><p className="text-sm text-muted-foreground">Run this in a terminal on the computer where you use {assistants[assistant]}.</p><CopyValue value={assistant === "codex" ? `codex mcp add paperclip --url ${quotedUrl}` : `claude mcp add --transport http paperclip ${quotedUrl}`} label="setup command" /></>}
-        <h2 className="text-sm font-semibold">2. Sign in and approve access</h2>
-        {assistant === "opencode" && <><p className="text-sm text-muted-foreground">Run this from the same project directory. OpenCode opens Paperclip’s sign-in and consent page in your browser.</p><CopyValue value="opencode mcp auth paperclip" label="sign-in command" /></>}
-        {assistant === "codex" && <><p className="text-sm text-muted-foreground">Run this command to open Paperclip’s sign-in and consent page in your browser.</p><CopyValue value="codex mcp login paperclip --scopes paperclip:read,paperclip:write,offline_access" label="sign-in command" /></>}
-        {assistant === "claude" && <p className="text-sm text-muted-foreground">Open Claude Code, run /mcp, select paperclip, and choose Authenticate. Claude opens Paperclip’s sign-in and consent page in your browser.</p>}
-        {assistant === "other" && <p className="text-sm text-muted-foreground">Use your assistant’s Connect or Authenticate action. It opens Paperclip’s sign-in and consent page in your browser.</p>}
-        <p className="text-sm">Choose <strong>{selectedCompany.name}</strong>, review read and write access, then click <strong>Connect organization</strong>. Return here after approval; your connection appears below automatically.</p>
-        <p className="text-xs text-muted-foreground">Creating tasks and adding comments may start agent work using the organization’s configured execution budget.</p>
-        {assistant === "opencode" && <><h2 className="text-sm font-semibold">3. Open your assistant</h2><p className="text-sm text-muted-foreground">After sign-in completes, start the browser app from that project directory. If it was already running, restart it to pick up the connection.</p><CopyValue value="opencode web" label="OpenCode launch command" /></>}
-      </section>
-      <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">MCP server URL</summary><div className="pt-3"><CopyValue value={serverUrl} label="MCP server URL" /></div></details>
+        <section className="space-y-4" aria-label={`Set up ${assistants[assistant]}`}>
+          {mcpSetupSteps(serverUrl, assistant).map((step, index) => <div key={`${assistant}-${index}`} className="space-y-2"><p className="text-sm text-muted-foreground">{step.text}</p>{step.code && <CopyValue value={step.code} label={`${assistants[assistant]} setup step ${index + 1}`} />}</div>)}
+          <p className="text-sm">Choose <strong>{selectedCompany.name}</strong>, review access, then click <strong>Connect organization</strong>.</p>
+          <p className="text-xs text-muted-foreground">Creating tasks and adding comments may start agent work using the organization’s configured execution budget.</p>
+        </section>
+        <CopyValue value={serverUrl} label="MCP server URL" />
+      </details>
     </>}
     <section className="space-y-3" aria-labelledby="connected-assistants">
       <h2 id="connected-assistants" className="text-sm font-semibold">Your connected assistants</h2>
