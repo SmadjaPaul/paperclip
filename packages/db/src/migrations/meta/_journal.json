@@ -2094,6 +2094,13 @@
       "when": 1791260726828,
       "tag": "0300_chunky_chamber",
       "breakpoints": true
+    },
+    {
+      "idx": 301,
+      "version": "7",
+      "when": 1791297318251,
+      "tag": "0301_whole_venom",
+      "breakpoints": true
     }
   ]
 }
