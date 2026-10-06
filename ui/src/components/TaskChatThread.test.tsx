@@ -437,7 +437,15 @@ describe.each(["legacy", "native"] as const)("%s task history readiness", (runti
     async (status) => {
       const props = {
         issueId: "issue-1",
-        comments: createLongThreadComments(),
+        comments: [...createLongThreadComments(), {
+          ...createLongThreadComments()[3],
+          id: "agent-answer",
+          authorType: "agent" as const,
+          authorAgentId: "agent-1",
+          body: "Final saved reply",
+          runId: "started-run",
+          createdAt: new Date("2026-08-25T18:00:02.000Z"),
+        }],
         onAdd: async () => {},
         linkedRuns: [
           retryRun,
@@ -455,9 +463,17 @@ describe.each(["legacy", "native"] as const)("%s task history readiness", (runti
         container.querySelector('[data-testid="task-chat-history-loading"]'),
       ).not.toBeNull();
       expect(container.textContent).toContain("Thread message 1");
-
+      expect(container.querySelector('[data-thread-anchor="comment-1"]')?.closest('[inert]')).not.toBeNull();
       transcriptState.hydratedRunIds = new Set(["started-run"]);
       nativeTranscriptState.hydratedRunIds = new Set(["started-run"]);
+      transcriptState.transcriptByRun.set("started-run", [{
+        kind: "thinking", text: "Reasoning before the reply",
+        ts: "2026-08-25T18:00:01.000Z",
+      }]);
+      nativeTranscriptState.transcriptByRun.set("started-run", [{
+        kind: "assistant", text: "Reasoning before the reply", channel: "progress",
+        ts: "2026-08-25T18:00:01.000Z",
+      }]);
       render(<TaskChatThread {...props} />);
       await act(async () => {
         await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -467,6 +483,15 @@ describe.each(["legacy", "native"] as const)("%s task history readiness", (runti
       expect(
         container.querySelector('[data-testid="task-chat-history-loading"]'),
       ).toBeNull();
+      expect(container.querySelector('[data-thread-anchor="comment-1"]')?.closest('[inert]')).toBeNull();
+      expect(container.textContent).toContain("Thread message 1");
+      if (status === "succeeded" && runtimeMode === "native") {
+        expect(container.textContent).toContain("Reasoning before the reply");
+        expect(container.textContent).toContain("Final saved reply");
+        expect(container.textContent!.indexOf("Reasoning before the reply")).toBeLessThan(
+          container.textContent!.indexOf("Final saved reply"),
+        );
+      }
     },
   );
 });
@@ -1776,6 +1801,32 @@ describe("TaskChatThread runtime transcript selection", () => {
     flushSync(() => marker!.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!.click());
     expect(container.textContent).toContain("Review the operation and update the agent's permission setting before retrying");
     expect(container.textContent).not.toContain("The runner stopped");
+  });
+
+  it.each([
+    "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.",
+    "The selected model is not supported by the current ChatGPT connection. Choose a supported model or a compatible AI connection.",
+  ])("promotes a rejected model above the runner's generated failure response: %s", (error) => {
+    nativeTranscriptState.transcriptByRun.set("model-rejected", [{
+      kind: "run_result", ts: "2026-08-25T18:00:01.000Z",
+      summary: "The Codex run failed before it completed.",
+      disposition: "needs_review", objectiveSatisfied: false, verification: [],
+      remainingWork: [], blocker: null, artifacts: [],
+    }]);
+    render(<TaskChatThread comments={[]} onAdd={async () => {}} linkedRuns={[{
+      runId: "model-rejected", runtimeMode: "native", status: "failed",
+      errorCode: "native_provider_model_rejected",
+      error,
+      agentId: "agent-1", agentName: "Runner", adapterType: "paperclip_runner",
+      createdAt: "2026-08-25T18:00:00.000Z", startedAt: "2026-08-25T18:00:00.000Z",
+      finishedAt: "2026-08-25T18:00:02.000Z",
+    }]} />);
+    const marker = container.querySelector('[data-testid="task-chat-collapsible-marker"]');
+    expect(marker?.textContent).toContain("Model unavailable");
+    flushSync(() => marker!.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!.click());
+    expect(container.textContent).toContain(error);
+    expect(container.textContent).toContain("clear the task's model override, then retry");
+    expect(container.textContent).not.toContain("after returning a final response");
   });
 
   it("keeps workspace contention out of the conversation's cancellation markers", () => {

@@ -192,6 +192,11 @@ choices. Codex uses the curated adapter catalog unless the instance declares
 `PAPERCLIP_ADAPTER_MODELS`; general OpenAI API models are not Codex choices.
 The Paperclip Runner Codex profile shows the same known model effort levels.
 Its selected effort is saved with the run and sent to Codex for each turn.
+When Codex reports that a selected model is not supported with a ChatGPT account,
+the task shows **Model unavailable**, the provider's account restriction, and
+guidance to choose a supported model or clear the task's model override before
+retrying. The run retains this reason even when the runner saves a generic
+failure result.
 Claude Code uses model-specific effort levels; Haiku has no effort slider.
 Grok uses its adapter's reasoning levels, including for its default model.
 Kimi shows effort only when its agent uses the CLI engine, including with its
@@ -459,6 +464,11 @@ npx paperclipai allowed-hostname dotta-macbook-pro
 ```
 
 ## Test Commands
+
+The [feature map](../feature-map/README.md) is an optional reference for user
+entry points, targeted tests, manual verification recipes, and coverage gaps.
+Its page inventory is a source snapshot. The documented journeys have separate
+verification steps and do not run automatically from the map.
 
 Use the cheap local default unless you are specifically working on browser flows:
 
@@ -1202,6 +1212,11 @@ lookups, and `/new` preserving chat history. Hiring additionally requires the
 operator-controlled [runner API tools](runner-api-tools.md) rollout; enabling
 Agent Chat does not enable that API surface. Failed-turn retries restore the
 selected run's user comments so the agent can answer the original request.
+
+An unsaved Agent Chat uses an ephemeral `chat:<agent-id>` view-model ID. Task
+browser polling starts after the first send or upload creates a persisted task
+UUID. Saved chats retain the task browser's company and credential access checks.
+Task browser routes reject malformed task IDs with `404` before querying PostgreSQL.
 
 A native continuation that requires reconciliation shows **Recovery needed**
 with **Inspect run**; inspect the original outcome before resolving its recovery
