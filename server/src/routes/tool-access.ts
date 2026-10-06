@@ -68,6 +68,7 @@ import {
   isPaperclipCloudConnectorStrategy,
   invalidatePaperclipCloudConnectorCapabilities,
   PaperclipCloudConnectorError,
+  safePaperclipCloudConnectorBrokerReason,
   type PaperclipCloudConnector,
   paperclipCloudConnectorCapabilitiesFromEnv,
 } from "../services/paperclip-cloud-connector.js";
@@ -256,13 +257,28 @@ export function cloudConnectorEnrollmentReturnPath(issuePrefix: string, returnTo
   return `${companyRoot}/apps/connections?cloud_connector=enrolled`;
 }
 
-export function paperclipCloudConnectorCallbackFailure(callbackError: unknown) {
+export function paperclipCloudConnectorCallbackFailure(
+  callbackError: unknown,
+  options: { providerCallbackError?: boolean } = {},
+) {
   const httpDetails = callbackError instanceof HttpError && callbackError.details && typeof callbackError.details === "object" && !Array.isArray(callbackError.details)
     ? callbackError.details as Record<string, unknown>
     : null;
   const cloudError = callbackError instanceof PaperclipCloudConnectorError
     ? callbackError
     : null;
+  const isHttpError = callbackError instanceof HttpError;
+  const isGenericError = callbackError instanceof Error && !cloudError && !isHttpError;
+  const isProviderError = options.providerCallbackError === true
+    || httpDetails?.code === "oauth_authorization_denied"
+    || httpDetails?.code === "paperclip_cloud_connector_failed";
+  const errorClass = cloudError
+    ? "PaperclipCloudConnectorError"
+    : isHttpError
+      ? "HttpError"
+      : callbackError instanceof Error
+        ? "Error"
+        : "Unknown";
   return {
     code: typeof httpDetails?.code === "string"
       ? httpDetails.code
@@ -270,6 +286,19 @@ export function paperclipCloudConnectorCallbackFailure(callbackError: unknown) {
     status: callbackError instanceof HttpError
       ? callbackError.status
       : cloudError?.status ?? 500,
+    brokerReason: safePaperclipCloudConnectorBrokerReason(cloudError?.brokerReason),
+    errorClass,
+    originLayer: isProviderError
+      ? "provider_callback"
+      : cloudError
+        ? "paperclip_cloud_connector"
+        : isHttpError
+          ? "paperclip_http"
+          : "unknown",
+    isPaperclipCloudConnectorError: Boolean(cloudError),
+    isHttpError,
+    isProviderError,
+    isGenericError,
     installationUrl: httpDetails?.installationUrl,
     managementUrl: httpDetails?.managementUrl,
   };
@@ -1225,7 +1254,9 @@ function connectorEnrollmentPrincipal(req: Request): string {
       res.json(result);
     } catch (callbackError) {
       if (!acceptsHtml) throw callbackError;
-      const callbackFailure = paperclipCloudConnectorCallbackFailure(callbackError);
+      const callbackFailure = paperclipCloudConnectorCallbackFailure(callbackError, {
+        providerCallbackError: Boolean(error),
+      });
       const callbackCode = callbackFailure.code;
       const callbackStatus = callbackFailure.status;
       await logActivity(db, {
@@ -1239,6 +1270,15 @@ function connectorEnrollmentPrincipal(req: Request): string {
           code: callbackCode,
           status: callbackStatus,
           provider: "paperclip_cloud_connector",
+          ...(callbackFailure.brokerReason
+            ? { brokerReason: callbackFailure.brokerReason }
+            : {}),
+          errorClass: callbackFailure.errorClass,
+          originLayer: callbackFailure.originLayer,
+          isPaperclipCloudConnectorError: callbackFailure.isPaperclipCloudConnectorError,
+          isHttpError: callbackFailure.isHttpError,
+          isProviderError: callbackFailure.isProviderError,
+          isGenericError: callbackFailure.isGenericError,
         },
       });
       if (pendingConnectionIntent && pendingState.interactionId && req.actor.userId) {

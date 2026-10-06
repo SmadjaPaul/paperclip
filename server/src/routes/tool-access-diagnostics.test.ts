@@ -18,6 +18,13 @@ describe("Paperclip Cloud OAuth callback diagnostics", () => {
     expect(paperclipCloudConnectorCallbackFailure(error)).toEqual({
       code,
       status,
+      brokerReason: undefined,
+      errorClass: "PaperclipCloudConnectorError",
+      originLayer: "paperclip_cloud_connector",
+      isPaperclipCloudConnectorError: true,
+      isHttpError: false,
+      isProviderError: false,
+      isGenericError: false,
       installationUrl: undefined,
       managementUrl: undefined,
     });
@@ -37,6 +44,13 @@ describe("Paperclip Cloud OAuth callback diagnostics", () => {
     ).toEqual({
       code: "oauth_authorization_denied",
       status: 400,
+      brokerReason: undefined,
+      errorClass: "HttpError",
+      originLayer: "provider_callback",
+      isPaperclipCloudConnectorError: false,
+      isHttpError: true,
+      isProviderError: true,
+      isGenericError: false,
       installationUrl: "https://github.com/apps/paperclip/installations/new",
       managementUrl: undefined,
     });
@@ -50,11 +64,38 @@ describe("Paperclip Cloud OAuth callback diagnostics", () => {
     expect(failure).toEqual({
       code: "paperclip_cloud_connector_callback_failed",
       status: 500,
+      brokerReason: undefined,
+      errorClass: "Error",
+      originLayer: "unknown",
+      isPaperclipCloudConnectorError: false,
+      isHttpError: false,
+      isProviderError: false,
+      isGenericError: true,
       installationUrl: undefined,
       managementUrl: undefined,
     });
     expect(JSON.stringify(failure)).not.toMatch(
       /provider-body|access-token|cookie-value/,
     );
+  });
+
+  it("preserves an allowlisted broker rejection reason without retaining its message", () => {
+    const failure = paperclipCloudConnectorCallbackFailure(
+      new PaperclipCloudConnectorError(
+        "broker private response body",
+        "CONNECTOR_REQUEST_FAILED",
+        502,
+        "PROVIDER_OPERATION_FAILED",
+      ),
+    );
+
+    expect(failure).toMatchObject({
+      code: "CONNECTOR_REQUEST_FAILED",
+      status: 502,
+      brokerReason: "PROVIDER_OPERATION_FAILED",
+      errorClass: "PaperclipCloudConnectorError",
+      originLayer: "paperclip_cloud_connector",
+    });
+    expect(JSON.stringify(failure)).not.toContain("private response body");
   });
 });
