@@ -1,10 +1,6 @@
-// @vitest-environment jsdom
-import { createRoot } from "react-dom/client";
-import { act } from "react";
-import type { ReactNode } from "react";
-
+import { renderToStaticMarkup } from "react-dom/server";
 import type { ComponentType } from "react";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { TooltipProvider } from "../components/ui/tooltip";
 import type { AdapterConfigFieldsProps, AdapterConfigSection } from "./types";
 import { CodexLocalConfigFields } from "./codex-local/config-fields";
@@ -14,29 +10,13 @@ import { ProcessConfigFields } from "./process/config-fields";
 import { OpenClawGatewayConfigFields } from "./openclaw-gateway/config-fields";
 import { HermesGatewayConfigFields } from "./hermes-gateway/config-fields";
 
-beforeAll(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); });
-
-async function renderMarkup(node: ReactNode, expand?: string): Promise<string> {
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  await act(async () => root.render(node));
-  if (expand) await act(async () => {
-    container.querySelector(`[aria-label="${expand}"]`)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  });
-  const html = container.innerHTML;
-  await act(async () => root.unmount());
-  container.remove();
-  return html;
-}
-
-async function renderSection(
+function renderSection(
   Component: ComponentType<AdapterConfigFieldsProps>,
   adapterType: string,
   section: AdapterConfigSection,
   config: Record<string, unknown> = {},
 ) {
-  return renderMarkup(
+  return renderToStaticMarkup(
     <TooltipProvider>
       <Component
         mode="edit"
@@ -56,31 +36,31 @@ async function renderSection(
 }
 
 describe("adapter configuration sections", () => {
-  it("separates provider selection from lifecycle and hides fixed Codex permissions", async () => {
+  it("separates provider selection from lifecycle and hides fixed Codex permissions", () => {
     const config = {
       provider: "codex",
       lifecycleMode: "warm",
       idleTimeoutMs: 45000,
     };
-    const adapter = await renderSection(
+    const adapter = renderSection(
       CodexLocalConfigFields,
       "paperclip_runner",
       "adapter",
       config,
     );
-    const configuration = await renderSection(
+    const configuration = renderSection(
       CodexLocalConfigFields,
       "paperclip_runner",
       "configuration",
       config,
     );
-    const policy = await renderSection(
+    const policy = renderSection(
       CodexLocalConfigFields,
       "paperclip_runner",
       "runPolicy",
       config,
     );
-    expect(adapter).toContain('aria-label="Harness"');
+    expect(adapter).toContain('<option value="acpx">ACP agents</option>');
     expect(adapter).not.toContain("Runner lifecycle");
     expect(configuration).not.toContain("Permission mode");
     expect(configuration).not.toContain("Runner lifecycle");
@@ -89,12 +69,13 @@ describe("adapter configuration sections", () => {
     expect(policy).not.toContain("ACP agents");
   });
 
-  it("keeps ACP agent admission choices in the adapter section", async () => {
+  it("keeps ACP agent admission choices in the adapter section", () => {
     const config = { provider: "acpx", acpxAgent: "claude" };
-    const adapter = await renderSection(CodexLocalConfigFields, "paperclip_runner", "adapter", config);
-    const policy = await renderSection(CodexLocalConfigFields, "paperclip_runner", "runPolicy", config);
+    const adapter = renderSection(CodexLocalConfigFields, "paperclip_runner", "adapter", config);
+    const policy = renderSection(CodexLocalConfigFields, "paperclip_runner", "runPolicy", config);
 
-    expect(adapter).toContain('aria-label="ACP agent"');
+    expect(adapter).toContain('<option value="claude" selected="">Claude</option>');
+    expect(adapter).toContain('<option value="pi" disabled="">Pi — qualification pending</option>');
     expect(adapter).not.toContain("Runner lifecycle");
     expect(policy).toContain("Runner lifecycle");
     expect(policy).not.toContain("ACP agent");
@@ -107,31 +88,31 @@ describe("adapter configuration sections", () => {
     ["gemini_local", GeminiLocalConfigFields],
   ] as const)(
     "separates ACP commands and lifecycle for %s",
-    async (type, Component) => {
+    (type, Component) => {
       const config = {
         engine: "acp",
         agentCommand: "saved-command",
         warmHandleIdleMs: 1234,
       };
-      expect(await renderSection(Component, type, "advanced", config)).toContain(
+      expect(renderSection(Component, type, "advanced", config)).toContain(
         'value="saved-command"',
       );
       expect(
-        await renderSection(Component, type, "configuration", config),
+        renderSection(Component, type, "configuration", config),
       ).not.toContain("ACP server command");
-      const policy = await renderSection(Component, type, "runPolicy", config);
+      const policy = renderSection(Component, type, "runPolicy", config);
       expect(policy).toContain("ACP session mode");
       expect(policy).toContain('value="1234"');
       expect(policy).not.toContain("ACP server command");
     },
   );
 
-  it("keeps process command and arguments under Advanced with saved values", async () => {
+  it("keeps process command and arguments under Advanced with saved values", () => {
     const config = { command: "node", args: ["worker.js", "--quiet"] };
     expect(
-      await renderSection(ProcessConfigFields, "process", "configuration", config),
+      renderSection(ProcessConfigFields, "process", "configuration", config),
     ).toBe("");
-    const advanced = await renderSection(
+    const advanced = renderSection(
       ProcessConfigFields,
       "process",
       "advanced",
@@ -146,12 +127,12 @@ describe("adapter configuration sections", () => {
     ["hermes_gateway", HermesGatewayConfigFields],
   ] as const)(
     "moves %s timeouts without changing their values",
-    async (type, Component) => {
+    (type, Component) => {
       const config = { timeoutSec: 37 };
       expect(
-        await renderSection(Component, type, "configuration", config),
+        renderSection(Component, type, "configuration", config),
       ).not.toContain('value="37"');
-      expect(await renderSection(Component, type, "runPolicy", config)).toContain(
+      expect(renderSection(Component, type, "runPolicy", config)).toContain(
         'value="37"',
       );
     },

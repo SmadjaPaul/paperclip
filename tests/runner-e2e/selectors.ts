@@ -16,7 +16,6 @@ export interface RunnerSelectorOptions {
   debug: boolean;
   maxParallel: number;
   maxAutomaticRetries: number;
-  connectionConfig?: string;
 }
 
 export class RunnerSelectorError extends Error {}
@@ -56,10 +55,6 @@ export function parseRunnerSelectors(
     else if (flag === "--headed") options.headed = true;
     else if (flag === "--ui") options.ui = true;
     else if (flag === "--debug") options.debug = true;
-    else if (flag === "--connection-config") {
-      options.connectionConfig = valueFor(args, index, flag);
-      index += 1;
-    }
     else if (flag === "--max-parallel") {
       const value = valueFor(args, index, flag);
       index += 1;
@@ -205,7 +200,6 @@ export function selectRunnerExecutions(
 export function buildMatrixJobs(
   executions: readonly MatrixExecution[],
 ): MatrixJob[] {
-  if (executions.some(e => e.task.flow === "provider_connection")) throw new RunnerSelectorError("Provider connection journeys use an explicit local/staging connection configuration; they are not admitted to paid CI matrix jobs yet.");
   return executions
     .map((execution) => ({
       executionId: execution.id,

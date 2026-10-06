@@ -40,7 +40,7 @@ const state = vi.hoisted(() => ({
   openNewIssue: vi.fn(),
 }));
 const managedApi = vi.hoisted(() => ({
-  list: vi.fn(async () => ({ currentUserId: "user-1", canManageConnections: true, connections: [] })),
+  list: vi.fn(async () => ({ currentUserId: "user-1", connections: [] })),
   create: vi.fn(async () => ({ connectionId: "managed-connection", grantId: "managed-grant" })),
   setDefault: vi.fn(async () => ({})),
 }));
@@ -157,7 +157,6 @@ const pass = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
-  managedApi.list.mockResolvedValue({ currentUserId: "user-1", canManageConnections: true, connections: [] });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -200,20 +199,7 @@ afterEach(async () => {
   container.remove();
 });
 describe("New agent setup", () => {
-  it("waits for the resolved environment before allowing a credential-mode selection", async () => {
-    let resolveEnvironments!: (value: object[]) => void;
-    envApi.list.mockImplementationOnce(() => new Promise<object[]>(resolve => { resolveEnvironments = resolve; }));
-    await render("codex_local");
-    expect(container.textContent).toContain("Loading connection settings");
-    expect(container.querySelector('[role="radiogroup"][aria-label="Connection type"]')).toBeNull();
-    await act(async () => resolveEnvironments([{ id: "local-1", name: "Local", driver: "local", config: {} }]));
-    await settle();
-    await click("OpenAIAPI key");
-    expect(container.querySelector('[aria-label="API key"]')).not.toBeNull();
-    await settle();
-    expect(container.querySelector('[aria-label="API key"]')).not.toBeNull();
-  });
-  it.each([false, true])("selects the Grok environment in Configure (managed-only=%s)", async (managedOnly) => {
+  it.each([false, true])("selects the Grok sandbox before connecting (managed-only=%s)", async (managedOnly) => {
     settings.getExperimental.mockResolvedValue({ enableNativeRunner: true, enableManagedSandboxOnly: managedOnly });
     envApi.list.mockResolvedValue([
       { id: "local-1", name: "Local", status: "active", driver: "local", config: {} },
@@ -224,9 +210,6 @@ describe("New agent setup", () => {
       secret: { companyId: "company-1", status: "active" },
     }]);
     await render("paperclip_runner", "grok");
-    expect(container.querySelector('select[aria-label="Environment"]')).toBeNull();
-    await click("GrokAPI key");
-    await click("Use saved API key");
     const select = container.querySelector('select[aria-label="Environment"]') as HTMLSelectElement;
     expect(select.disabled).toBe(false);
     expect([...select.options].some((option) => option.value === "local-1")).toBe(!managedOnly);
@@ -235,10 +218,8 @@ describe("New agent setup", () => {
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
     await settle();
-    if (container.querySelector('[role="radiogroup"][aria-label="Connection type"]')) {
-      await click("GrokAPI key");
-      await click("Use saved API key");
-    }
+    await click("GrokAPI");
+    await click("Use saved API key");
     expect(api.testEnvironment).toHaveBeenCalledWith("company-1", "paperclip_runner", expect.objectContaining({ environmentId: "grok-sandbox" }));
     await click("Finish setup");
     expect(api.hire.mock.calls[0][1].defaultEnvironmentId).toBe("grok-sandbox");
@@ -278,13 +259,13 @@ describe("New agent setup", () => {
     api.getAdapterAuthSignal.mockResolvedValue({ status: "missing" });
     api.testEnvironment.mockResolvedValue({ ...pass, adapterType });
     await render(adapterType, "grok");
-    expect(container.textContent).toContain("Connect a model");
-    expect(container.textContent).not.toContain("Connect Atlas to Grok");
+    expect(container.textContent).toContain("Connect Atlas to Grok");
     if (method === "subscription") {
       await click("GrokSubscription");
       await click("Complete subscription login");
     } else {
-      await click("GrokAPI key");
+      await click("Use API key insteadUse subscription insteadUse API key instead");
+      await click("GrokAPI");
       await fill("API key", "example-test-secret");
       await click("Connect");
       expect(managedApi.create).toHaveBeenCalledWith("company-1", expect.objectContaining({
@@ -394,8 +375,7 @@ describe("New agent setup", () => {
   });
   it("uses the shared Grok connection flow and hides ignored Kimi and OpenCode effort controls", async () => {
     await render("grok_local");
-    expect(container.textContent).toContain("Connect a model");
-    expect(container.textContent).not.toContain("Connect Atlas to Grok");
+    expect(container.textContent).toContain("Connect Atlas to Grok");
     await render("opencode_local");
     expect(container.querySelector('[aria-label="Thinking effort"]')).toBeNull();
   });
@@ -482,15 +462,14 @@ describe("New agent setup", () => {
     ["paperclip_runner", "codex", "OpenAI", "OPENAI_API_KEY"],
   ])("stores %s %s as a reusable connection before hiring", async (adapter, runner, provider, key) => {
     await render(adapter, runner);
-    await click(provider + "API key");
+    await click("Use API key insteadUse subscription insteadUse API key instead");
+    await click(provider + "API");
     await fill("API key", "connection-key");
     await click("Connect");
     const binding = { provider: key === "ANTHROPIC_API_KEY" ? "anthropic" : "openai", method: "api_key", mode: "responsible_user" };
     expect(managedApi.create).toHaveBeenCalledWith("company-1", expect.objectContaining({ apiKey: "connection-key", provider: binding.provider }));
     expect(api.testEnvironment.mock.calls[0][2].testCredentials).toEqual({});
     expect(api.testEnvironment.mock.calls[0][2].aiConnection).toEqual(binding);
-    expect(container.textContent).toContain("Configure your agent");
-    expect(container.querySelector('[role="combobox"][aria-label="Connection"]')).toBeNull();
     expect(secrets.createUserSecretDefinition).not.toHaveBeenCalled();
     await click("Finish setup");
     expect(api.hire.mock.calls[0][1].runtimeConfig.aiConnection).toEqual(binding);
@@ -508,7 +487,7 @@ describe("New agent setup", () => {
       secret: { companyId: "company-1", status: "active" },
     }]);
     await render(adapter, runner);
-    await click(provider + "API key");
+    await click(provider + "API");
     expect((container.querySelector("select[aria-label='Saved API key']") as HTMLSelectElement).value).toBe("user:existing-key");
     await click("Use saved API key");
     const binding = { type: "user_secret_ref", key, version: "latest" };
@@ -519,34 +498,6 @@ describe("New agent setup", () => {
     expect(secrets.createUserSecretDefinition).not.toHaveBeenCalled();
     expect(secrets.createMyUserSecret).not.toHaveBeenCalled();
     expect(secrets.rotateMyUserSecret).not.toHaveBeenCalled();
-  });
-  it.each(["codex_local", "paperclip_runner"])("keeps a saved connection chosen in Connect when hiring %s", async (adapter) => {
-    await render(adapter, "codex");
-    managedApi.list.mockResolvedValue({
-      currentUserId: "user-1",
-      connections: [{
-        id: "00000000-0000-4000-8000-000000000021", grantId: "00000000-0000-4000-8000-000000000022", companyId: "company-1",
-        provider: "openrouter", method: "api_key", name: "Company OpenRouter",
-        ownership: "shared", isDefault: false, status: "connected",
-        routing: { kind: "openrouter", protocol: "responses", auth: "bearer", models: [] },
-      }],
-    } as any);
-    await click("AdvancedCustom Gateway");
-    const picker = container.querySelector('[role="combobox"][aria-label="Connection"]')!;
-    await act(async () => picker.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    await settle();
-    const option = [...document.querySelectorAll('[role="option"]')].find(node => node.textContent?.includes("Company OpenRouter")) as HTMLElement;
-    expect(option).toBeTruthy();
-    await act(async () => option.click());
-    await settle();
-    await click("Use connection");
-    expect(container.textContent).toContain("Configure your agent");
-    expect(container.querySelector('[role="combobox"][aria-label="Connection"]')).toBeNull();
-    await click("Run test");
-    const binding = { provider: "openrouter", method: "api_key", mode: "shared", connectionId: "00000000-0000-4000-8000-000000000021", grantId: "00000000-0000-4000-8000-000000000022" };
-    expect(api.testEnvironment.mock.calls[0][2].aiConnection).toEqual(binding);
-    await click("Finish setup");
-    expect(api.hire.mock.calls[0][1].runtimeConfig.aiConnection).toEqual(binding);
   });
   it.each(["pi_local"])(
     "persists %s OpenRouter credentials only as a secret reference",
@@ -577,22 +528,11 @@ describe("New agent setup", () => {
     await render("opencode_local");
     const model = "openrouter/anthropic/claude-sonnet-4.6";
     await fill("Model", model);
-    const connectionSelect = container.querySelector('[role="combobox"][aria-label="Connection"]')!;
-    await act(async () => connectionSelect.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    await settle();
-    const connectOption = [...document.querySelectorAll('[role="option"]')].find(option => option.textContent?.includes("Connect an account"))!;
-    expect(connectOption).toBeTruthy();
-    await act(async () => (connectOption as HTMLElement).click());
-    await settle();
+    await click("Connect another account");
     const dialog = document.querySelector('[role="dialog"]')!;
     expect(dialog).toBeTruthy();
     expect(api.hire).not.toHaveBeenCalled();
     expect(api.testEnvironment).not.toHaveBeenCalled();
-    const advanced = [...dialog.querySelectorAll("summary")].find(node => node.textContent?.includes("Advanced providers"))!;
-    await act(async () => advanced.click());
-    const openrouter = [...dialog.querySelectorAll("button")].find(node => node.textContent?.includes("OpenRouter"))!;
-    await act(async () => openrouter.click());
-    await settle();
     const input = dialog.querySelector('[aria-label="API key"]') as HTMLInputElement;
     expect(input).toBeTruthy();
     await act(async () => {
@@ -604,13 +544,11 @@ describe("New agent setup", () => {
     await act(async () => connectButton.click());
     await settle();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(managedApi.setDefault).not.toHaveBeenCalled();
-    expect(api.hire).not.toHaveBeenCalled();
-    expect(api.testEnvironment).not.toHaveBeenCalled();
+    expect(managedApi.setDefault).toHaveBeenCalledWith("company-1", "managed-grant");
     expect(managedApi.create).toHaveBeenCalledWith("company-1", expect.objectContaining({
       provider: "openrouter", method: "api_key", apiKey: "example-test-secret",
     }));
-    const binding = { provider: "openrouter", method: "api_key", mode: "shared", connectionId: "managed-connection", grantId: "managed-grant" };
+    const binding = { provider: "openrouter", method: "api_key", mode: "responsible_user" };
     await click("Run test");
     expect(api.testEnvironment.mock.calls[0][2]).toEqual(expect.objectContaining({
       aiConnection: binding, testCredentials: {},
@@ -707,7 +645,7 @@ describe("New agent setup", () => {
       { type: "paperclip_runner", loaded: true, disabled: true },
     ];
     await render("paperclip_runner");
-    expect(container.textContent).toContain("This adapter is unavailable");
+    await connect("OpenAI");
     expect(api.testEnvironment).not.toHaveBeenCalled();
     expect(api.hire).not.toHaveBeenCalled();
   });

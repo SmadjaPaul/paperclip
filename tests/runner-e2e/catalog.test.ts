@@ -136,10 +136,10 @@ describe("runner E2E catalog", () => {
     expect(localIntegrityTasks).toHaveLength(2);
     expect(openRouterBreadthTasks).toHaveLength(3);
     expect(runnerSuites.map((suite) => suite.expectedMatrixSize)).toEqual([
-      6, 30, 3, 16, 16, 2, 6, 8, 46, 23, 52, 6, 6, 20, 26, 52, 28, 18, 2, 6, 6, 12, 10, 48, 16, 10, 2, 1, 1, 116,
+      6, 30, 3, 16, 16, 2, 6, 8, 46, 23, 52, 6, 6, 20, 26, 52, 28, 18, 2, 6, 6, 12, 10, 48, 16, 10, 2, 1, 1,
     ]);
-    expect(validateRunnerCatalog()).toHaveLength(594);
-    expect(new Set(runnerMatrix.map((entry) => entry.id)).size).toBe(594);
+    expect(validateRunnerCatalog()).toHaveLength(478);
+    expect(new Set(runnerMatrix.map((entry) => entry.id)).size).toBe(478);
     expect(
       runnerMatrix.filter((entry) => entry.suite.id === "core-compatibility"),
     ).toHaveLength(48);
@@ -428,13 +428,13 @@ describe("runner E2E catalog", () => {
 
   it("uses only declared secret references in generated payloads", () => {
     expect(
-      runnerMatrix.filter(entry => entry.task.flow !== "provider_connection").every((entry) =>
+      runnerMatrix.every((entry) =>
         entry.requiredCredentials.includes(entry.profile.credential),
       ),
     ).toBe(true);
     expect(
       runnerMatrix
-        .filter((entry) => entry.environment.id === "daytona" && entry.task.flow !== "provider_connection")
+        .filter((entry) => entry.environment.id === "daytona")
         .every((entry) =>
           entry.requiredCredentials.includes("DAYTONA_API_KEY"),
         ),

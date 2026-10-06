@@ -1,11 +1,5 @@
 # Runner E2E fixture authoring
 
-## Connection creation fixtures
-
-See [PROVIDER-CONNECTIONS.md](PROVIDER-CONNECTIONS.md) for the explicit-only
-`provider-connections` suite, local/staging target ownership, dedicated browser
-profiles, credential handoffs, private evidence, and cleanup contract.
-
 The fixture catalog is executable production-contract data. Keep it small,
 typed, deterministic, and free of raw credentials.
 

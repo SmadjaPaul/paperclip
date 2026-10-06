@@ -7,7 +7,6 @@ export const AI_PROVIDERS: Record<
   AiProvider,
   { name: string; subscriptionName?: string; logo?: string }
 > = {
-  google: { name: "Google", logo: "/brands/apps/google.svg" },
   anthropic: {
     name: "Claude",
     subscriptionName: "Claude subscription",
