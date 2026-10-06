@@ -508,6 +508,7 @@ export async function createApp(
   },
 ) {
   const app = express();
+  const staticUi = express.Router();
   app.locals.paperclipDb = db;
   const isWarmStandby = opts.cloudWarmStandby ?? (() => false);
   const health = healthRoutes(db, {
@@ -572,7 +573,7 @@ export async function createApp(
   app.use(cloudRuntimeIdentityMiddleware(db));
   // A signed claim above commits identity before any normal request can seed
   // company data. Unclaimed probes bypass session resolution as well as SQL.
-  app.use(cloudWarmStandbyMiddleware(isWarmStandby, health));
+  app.use(cloudWarmStandbyMiddleware(isWarmStandby, health, staticUi));
   // Connection-intent tools carry their own short-lived, run-bound bearer and
   // must be reachable by remote adapters that intentionally do not receive an
   // agent API key. Every request revalidates the active heartbeat row.
@@ -994,7 +995,7 @@ export async function createApp(
     if (uiDist) {
       // Hashed asset files (Vite emits them under /assets/<name>.<hash>.<ext>)
       // never change once built, so they can be cached aggressively.
-      app.use(
+      staticUi.use(
         "/assets",
         express.static(path.join(uiDist, "assets"), {
           maxAge: "1y",
@@ -1002,14 +1003,14 @@ export async function createApp(
         }),
       );
       // Serve root/index through the same runtime HTML transform as SPA routes.
-      app.get(["/", "/index.html"], (_req, res) => {
+      staticUi.get(["/", "/index.html"], (_req, res) => {
         res.type("html").set("Cache-Control", "no-cache").send(readBrandedStaticIndexHtml(uiDist));
       });
       // Non-hashed static files (favicon.ico, manifest, robots.txt, etc.):
       // short cache so operators who swap them out see the new version
       // reasonably fast, with must-revalidate overrides for index.html and
       // sw.js (see staticUiCacheControl for why those two).
-      app.use(
+      staticUi.use(
         express.static(uiDist, {
           maxAge: "1h",
           setHeaders(res, filePath) {
@@ -1026,7 +1027,7 @@ export async function createApp(
       // with a MIME-type error, and cache that broken response. Return 404
       // instead. The index.html response itself is no-cache so a subsequent
       // deploy's updated asset hashes are picked up on next load.
-      app.get(/.*/, (req, res) => {
+      staticUi.get(/.*/, (req, res) => {
         if (req.path.startsWith("/assets/")) {
           res.status(404).end();
           return;
@@ -1118,9 +1119,9 @@ export async function createApp(
     const renderViteHtml = viteHtmlRenderer;
 
     if (fs.existsSync(publicUiRoot)) {
-      app.use(express.static(publicUiRoot, { index: false }));
+      staticUi.use(express.static(publicUiRoot, { index: false }));
     }
-    app.get(/.*/, async (req, res, next) => {
+    staticUi.get(/.*/, async (req, res, next) => {
       if (!shouldServeViteDevHtml(req)) {
         next();
         return;
@@ -1132,9 +1133,10 @@ export async function createApp(
         next(err);
       }
     });
-    app.use(vite.middlewares);
+    staticUi.use(vite.middlewares);
   }
 
+  app.use(staticUi);
   app.use(errorHandler);
 
   jobCoordinator.start();

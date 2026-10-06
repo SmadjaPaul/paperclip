@@ -1,3 +1,4 @@
+import { cloudWarmStandbyServerOptions } from "./middleware/cloud-warm-standby.js";
 import { createCloudWarmStandby } from "./services/cloud-warm-standby.js";
 import { subscribeAllCompanyLiveEvents } from "./services/live-events.js";
 import { chatCompletionDeliveryService } from "./services/chat-completion-delivery.js";
@@ -18,7 +19,7 @@ import { reconcileAbandonedExecutionControl } from "./services/execution-control
 import { EXECUTION_RECONCILIATION_INTERVAL_MS } from "./services/execution-control-deadline.js";
 import { connectionIntentDeliveryService } from "./services/connection-intent-delivery.js";
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, type RequestListener } from "node:http";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
@@ -925,7 +926,8 @@ async function startServerWithDatabaseTeardown(
     decisionServiceOptions,
     managedPluginAutoInstall,
   });
-  const server = createServer(app as unknown as Parameters<typeof createServer>[0]);
+  // Upgrade admission runs before every WebSocket listener, outside Express.
+  const server = createServer(cloudWarmStandbyServerOptions(isWarmStandby), app as unknown as RequestListener);
 
   // Increase keep-alive timeouts to safely outlive default idle timeouts
   // of common reverse proxies and load balancers (like AWS ALB, Nginx, or Traefik).

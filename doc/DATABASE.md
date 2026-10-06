@@ -261,8 +261,9 @@ cleanup, feedback export, import cleanup, execution reconciliation, heartbeat
 schedules, and automatic backups. Startup migrations, plugin installation, and
 other one-time preparation still run. Normal anonymous health probes return
 `warmStandby: true` without SQL or session lookups. This is application liveness,
-not a current database connectivity check. Other API requests return 503 until
-the signed claim succeeds.
+not a current database connectivity check. Other API requests and WebSocket upgrades return 503 until
+the signed claim succeeds. Page and asset requests serve only the static UI
+router, bypassing session, bearer-key, tenant, and other dynamic handlers.
 
 The existing signed claim on `GET /api/health` writes the identity durably before
 normal requests and polling resume. No polling discovers claims and no process
