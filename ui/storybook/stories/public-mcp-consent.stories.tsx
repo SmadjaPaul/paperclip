@@ -24,6 +24,7 @@ export const ChooseOrganization: Story = { play: async ({ canvasElement }) => {
   await expect(c.getByRole("button", { name: "Connect organization" })).toBeEnabled();
 } };
 export const Claude: Story = { parameters: { fixture: { request: { clientName: "Claude", clientOrigin: "https://claude.ai", redirectOrigin: "https://claude.ai", companies: [request.companies[0]], setupUrl: "https://my.paperclip.app/orgs/new" } } } };
+export const SeparateCallbackOrigin: Story = { parameters: { fixture: { request: { clientName: "Claude Code", clientOrigin: "https://claude.ai", redirectOrigin: "http://localhost:57843", companies: [request.companies[0]] } } } };
 export const UnknownAssistant: Story = { parameters: { fixture: { request: { clientName: "Assistant", clientOrigin: null, redirectOrigin: "https://assistant.example" } } } };
 export const OpenCodeOrganization: Story = { parameters: { fixture: { request: { clientName: "OpenCode", redirectOrigin: "http://127.0.0.1:19876", companies: [{ ...request.companies[0], name: "Paperclip Storybook" }] } } } };
 export const AllowDelegation: Story = { play: async context => {

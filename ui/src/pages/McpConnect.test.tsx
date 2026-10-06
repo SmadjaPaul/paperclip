@@ -69,6 +69,8 @@ it("identifies the receiving app and registered callback origin before approval"
   try {
     await vi.waitFor(() => expect(page.container.querySelector("h1")?.textContent).toBe("Connect Claude to Paperclip"));
     expect(page.container.textContent).toContain("https://claude.ai");
+    expect(page.container.textContent).toContain("https://assistant.example.test");
+    expect(page.container.querySelector('img[src="https://assistant.example.test/favicon.ico"]')?.getAttribute("referrerpolicy")).toBe("no-referrer");
     expect(page.container.textContent).not.toContain("Access for");
     expect(page.container.querySelector('img[src="/brands/claude-color.svg"]')).not.toBeNull();
     expect(page.container.querySelector('a[href="https://my.paperclip.app/orgs/new"]')).toBeNull();

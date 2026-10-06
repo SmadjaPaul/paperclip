@@ -72,6 +72,7 @@ function McpConnectRequest({ id, device = false, onEditCode }: { id: string; dev
         <h1 className="min-w-0 break-words text-xl font-semibold">Connect <bdi>{assistantName}</bdi> to Paperclip</h1>
       </div>
       {clientOrigin && <ClientOrigin key={clientOrigin} origin={clientOrigin} />}
+      {!device && data?.redirectOrigin && data.redirectOrigin !== clientOrigin && <ClientOrigin key={data.redirectOrigin} origin={data.redirectOrigin} />}
       {device && <p className="text-sm">Confirm this matches the code shown by your assistant: <strong className="font-mono">{id.toUpperCase()}</strong></p>}
       {request.isPending && <p className="text-sm text-muted-foreground">Loading connection request…</p>}
       {request.error && <p className="text-sm text-destructive">{request.error.message} Start a new connection from your assistant.</p>}
