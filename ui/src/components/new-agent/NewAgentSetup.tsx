@@ -740,6 +740,7 @@ function Setup({
                             value={aiBinding}
                             preferAdvanced
                             onChange={binding => {
+                              if (binding.mode === "router") return;
                               setConnection({ env: {}, aiConnection: binding });
                               setRuntimeAiBinding(undefined);
                               resetTest();
