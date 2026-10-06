@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { assistantClientNames, mcpInvitation, mcpSetupSteps, mcpSetupUrl, type AssistantClient } from "@paperclipai/shared";
+import { assistantClientNames, mcpAuthorizationHandoffInstructions, mcpInvitation, mcpSetupSteps, mcpSetupUrl, type AssistantClient } from "@paperclipai/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink, Paperclip } from "lucide-react";
 import { publicMcpApi } from "@/api/publicMcp";
@@ -128,6 +128,7 @@ export function AssistantConnection({ initialAssistant = "codex" }: { initialAss
         <Tabs value={assistant} onValueChange={value => setAssistant(value as Assistant)}><TabsList className="flex h-auto flex-wrap justify-start">{Object.entries(assistants).map(([value, name]) => <TabsTrigger key={value} value={value}>{name}</TabsTrigger>)}</TabsList></Tabs>
         <section className="space-y-4" aria-label={`Set up ${assistants[assistant]}`}>
           {mcpSetupSteps(serverUrl, assistant).map((step, index) => <div key={`${assistant}-${index}`} className="space-y-2"><p className="text-sm text-muted-foreground">{step.text}</p>{step.code && <CopyValue value={step.code} label={`${assistants[assistant]} setup step ${index + 1}`} />}</div>)}
+          {assistant !== "browser" && <p className="text-sm text-muted-foreground">{mcpAuthorizationHandoffInstructions}</p>}
           <p className="text-sm">Choose <strong>{selectedCompany.name}</strong>, review access, then click <strong>Connect organization</strong>.</p>
           <p className="text-xs text-muted-foreground">Creating tasks and adding comments may start agent work using the organization’s configured execution budget.</p>
         </section>

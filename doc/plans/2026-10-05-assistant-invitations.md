@@ -118,3 +118,14 @@ no access. Keep the existing experimental setting and simplified consent UI.
 - The screenshot gallery starts at Butter's dashboard and records configuration,
   pending consent and this timeout finding. New persistent grants still await
   human confirmation; do not describe the real Butter journey as complete.
+
+- Follow-up campaign `local-2026-10-06T02-58-30-041Z` at `cda8178af`
+  passed 3/3 cold starts. Review then found HTML lacked the new Markdown advice.
+  A shared constant now feeds Markdown, public HTML and manual setup. Verified
+  the generated Markdown remains byte-identical to the paid-evaluated version
+  with and without an organization hint. Shared build, server/UI typechecks,
+  token gates and 63 auth/metadata checks pass after this presentation fix.
+- Butter deployment of `2992ef271` succeeded. Actual Claude web CIMD now reaches
+  consent and shows Claude's identifying domain. Its grant still awaits consent.
+  Anonymous setup returns no organization name; account setup and MCP tool
+  initialization reject unauthenticated requests with 401.

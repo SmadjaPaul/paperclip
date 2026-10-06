@@ -1,4 +1,4 @@
-import { assistantClientNames, mcpSetupMarkdown, mcpSetupSteps, type AssistantClient } from "@paperclipai/shared";
+import { assistantClientNames, mcpAuthorizationHandoffInstructions, mcpSetupMarkdown, mcpSetupSteps, type AssistantClient } from "@paperclipai/shared";
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
@@ -11,6 +11,7 @@ export function renderMcpSetup(serverUrl: string, companyId?: string) {
 <p>Follow the setup instructions for your assistant, then approve its access in Paperclip.</p>
 <p>This link gives instructions, not access. Your assistant connects as you, not as a Paperclip agent.</p>
 <p><a href="${escapeHtml(markdownUrl.toString())}">Instructions for assistants (Markdown)</a></p>
+<p>${escapeHtml(mcpAuthorizationHandoffInstructions)}</p>
 <p>MCP server: <code>${escapeHtml(serverUrl)}</code></p>
 ${companyId ? `<p>Requested organization ID: <code>${escapeHtml(companyId)}</code>. Verify this organization after approval.</p>` : ""}
 ${Object.entries(assistantClientNames).map(([id, name]) => `<section><h2>${escapeHtml(name)}</h2><ol>${mcpSetupSteps(serverUrl, id as AssistantClient).map(step => `<li><p>${escapeHtml(step.text)}</p>${step.code ? `<pre><code>${escapeHtml(step.code)}</code></pre>` : ""}</li>`).join("")}</ol></section>`).join("")}
