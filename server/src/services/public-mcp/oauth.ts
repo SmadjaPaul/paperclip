@@ -9,7 +9,7 @@ import {
 import { PUBLIC_MCP_PATH, PUBLIC_MCP_SCOPES, type McpConnectionRequest } from "@paperclipai/shared";
 import { boardAuthService } from "../board-auth.js";
 import { logActivity } from "../activity-log.js";
-import { createClientMetadataResolver, validMcpRedirect as validRedirect, type MetadataFetch } from "./client-metadata.js";
+import { createClientMetadataResolver, mcpRedirectMatches, validMcpRedirect as validRedirect, type MetadataFetch } from "./client-metadata.js";
 
 const minute = 60_000;
 const accessLifetime = 15 * minute;
@@ -103,22 +103,48 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
   async function resolveClient(id: string) {
     if (!id.startsWith("https://")) {
       const [client] = await db.select().from(mcpOauthClients).where(eq(mcpOauthClients.id, id));
-      return client;
+      return client ? { ...client, native: false } : undefined;
     }
     let metadata;
     try { metadata = await resolveMetadata(id); }
     catch { throw new McpOAuthError("invalid_client_metadata", "Could not verify the client's public metadata."); }
-    return db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(736721042)`);
-      const [existing] = await tx.select().from(mcpOauthClients).where(eq(mcpOauthClients.id, id));
-      if (!existing) {
-        const [count] = await tx.select({ n: sql<number>`count(*)::int` }).from(mcpOauthClients);
-        if (!count || count.n >= 10_000) throw new McpOAuthError("temporarily_unavailable", "Client registration capacity reached.", 429);
-      }
-      const value = { name: metadata.client_name, redirectUris: metadata.redirect_uris, grantTypes: metadata.grant_types };
-      const [client] = await tx.insert(mcpOauthClients).values({ id, ...value }).onConflictDoUpdate({ target: mcpOauthClients.id, set: value }).returning();
-      return client;
-    });
+    return { id, name: metadata.client_name, redirectUris: metadata.redirect_uris,
+      grantTypes: metadata.grant_types, native: metadata.application_type === "native" };
+  }
+
+  async function retainMetadataClient(tx: Db, client: NonNullable<Awaited<ReturnType<typeof resolveClient>>>, source: string) {
+    if (!client.id.startsWith("https://")) return;
+    const sourceHash = hashMcpSecret(config.resource + ":" + source);
+    // Caller holds the shared registration lock and has admitted this request.
+    await pruneClients(tx);
+    const [existing] = await tx.select().from(mcpOauthClients).where(eq(mcpOauthClients.id, client.id));
+    if (!existing) await admitClient(tx, sourceHash);
+    const value = { name: client.name, redirectUris: client.redirectUris, grantTypes: client.grantTypes };
+    await tx.insert(mcpOauthClients).values({ id: client.id, registrationSourceHash: sourceHash, ...value })
+      .onConflictDoUpdate({ target: mcpOauthClients.id, set: value });
+  }
+
+  async function pruneClients(tx: Db) {
+    const now = new Date();
+    await tx.delete(mcpOauthRequests).where(lt(mcpOauthRequests.expiresAt, now));
+    await tx.delete(mcpOauthDeviceRequests).where(lt(mcpOauthDeviceRequests.expiresAt, now));
+    await tx.delete(mcpOauthClients).where(and(
+      lt(mcpOauthClients.createdAt, new Date(now.getTime() - 60 * minute)),
+      notExists(tx.select({ id: mcpOauthGrants.id }).from(mcpOauthGrants).where(eq(mcpOauthGrants.clientId, mcpOauthClients.id))),
+      notExists(tx.select({ id: mcpOauthRequests.id }).from(mcpOauthRequests).where(eq(mcpOauthRequests.clientId, mcpOauthClients.id))),
+      notExists(tx.select({ id: mcpOauthDeviceRequests.id }).from(mcpOauthDeviceRequests).where(eq(mcpOauthDeviceRequests.clientId, mcpOauthClients.id))),
+    ));
+  }
+
+  async function admitClient(tx: Db, sourceHash: string) {
+    const [counts] = await tx.select({ total: sql<number>`count(*)::int`,
+      sourceTotal: sql<number>`(count(*) FILTER (WHERE ${mcpOauthClients.registrationSourceHash} = ${sourceHash}))::int`,
+      sourceRecent: sql<number>`(count(*) FILTER (WHERE ${mcpOauthClients.registrationSourceHash} = ${sourceHash} AND ${mcpOauthClients.createdAt} > ${new Date(Date.now() - minute).toISOString()}::timestamptz))::int`,
+      recent: sql<number>`(count(*) FILTER (WHERE ${mcpOauthClients.createdAt} > ${new Date(Date.now() - minute).toISOString()}::timestamptz))::int`,
+    }).from(mcpOauthClients).where(notExists(tx.select({ id: mcpOauthGrants.id }).from(mcpOauthGrants).where(eq(mcpOauthGrants.clientId, mcpOauthClients.id))));
+    if (!counts || counts.total >= 10_000 || counts.recent >= 60 || counts.sourceTotal >= 30 || counts.sourceRecent >= 6) {
+      throw new McpOAuthError("temporarily_unavailable", "Registration capacity reached. Retry later.", 429);
+    }
   }
 
   async function consentContext(actor: Request["actor"], requestedCompanyId: string | null) {
@@ -191,11 +217,13 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
       const userCode = chars.slice(0, 4) + "-" + chars.slice(4);
       const sourceHash = hashMcpSecret(config.resource + ":" + source);
       await db.transaction(async tx => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(736721042)`);
         await tx.execute(sql`SELECT pg_advisory_xact_lock(736721043)`);
         const now = new Date();
         await tx.delete(mcpOauthDeviceRequests).where(lt(mcpOauthDeviceRequests.expiresAt, now));
         const [count] = await tx.select({ total: sql<number>`count(*)::int`, source: sql<number>`(count(*) FILTER (WHERE ${mcpOauthDeviceRequests.sourceHash} = ${sourceHash}))::int` }).from(mcpOauthDeviceRequests);
         if (!count || count.total >= 1000 || count.source >= 10) throw new McpOAuthError("temporarily_unavailable", "Too many device connection attempts. Try again later.", 429);
+        await retainMetadataClient(tx as unknown as Db, client, source);
         await tx.insert(mcpOauthDeviceRequests).values({ clientId: client.id, deviceCodeHash: hashMcpSecret(deviceCode), userCodeHash: deviceHash(userCode),
           resource: config.resource, scopes, requestedCompanyId: p.data.company_id ?? null, sourceHash, expiresAt: new Date(now.getTime() + 10 * minute) });
       });
@@ -231,34 +259,19 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
       await db.transaction(async (tx) => {
         // Bound public DCR across replicas, not only per-IP in each process.
         await tx.execute(sql`SELECT pg_advisory_xact_lock(736721042)`);
-        const now = new Date();
-        await tx.delete(mcpOauthRequests).where(lt(mcpOauthRequests.expiresAt, now));
-        await tx.delete(mcpOauthDeviceRequests).where(lt(mcpOauthDeviceRequests.expiresAt, now));
-        await tx.delete(mcpOauthClients).where(and(
-          lt(mcpOauthClients.createdAt, new Date(now.getTime() - 60 * minute)),
-          notExists(tx.select({ id: mcpOauthGrants.id }).from(mcpOauthGrants).where(eq(mcpOauthGrants.clientId, mcpOauthClients.id))),
-          notExists(tx.select({ id: mcpOauthRequests.id }).from(mcpOauthRequests).where(eq(mcpOauthRequests.clientId, mcpOauthClients.id))),
-          notExists(tx.select({ id: mcpOauthDeviceRequests.id }).from(mcpOauthDeviceRequests).where(eq(mcpOauthDeviceRequests.clientId, mcpOauthClients.id))),
-        ));
-        const [counts] = await tx.select({ total: sql<number>`count(*)::int`,
-          sourceTotal: sql<number>`(count(*) FILTER (WHERE ${mcpOauthClients.registrationSourceHash} = ${client.registrationSourceHash}))::int`,
-          sourceRecent: sql<number>`(count(*) FILTER (WHERE ${mcpOauthClients.registrationSourceHash} = ${client.registrationSourceHash} AND ${mcpOauthClients.createdAt} > ${new Date(now.getTime() - minute).toISOString()}::timestamptz))::int`,
-          recent: sql<number>`(count(*) FILTER (WHERE ${mcpOauthClients.createdAt} > ${new Date(now.getTime() - minute).toISOString()}::timestamptz))::int`,
-        }).from(mcpOauthClients).where(notExists(tx.select({ id: mcpOauthGrants.id }).from(mcpOauthGrants).where(eq(mcpOauthGrants.clientId, mcpOauthClients.id))));
-        if (!counts || counts.total >= 10_000 || counts.recent >= 60 || counts.sourceTotal >= 30 || counts.sourceRecent >= 6) {
-          throw new McpOAuthError("temporarily_unavailable", "Registration capacity reached. Retry later.", 429);
-        }
+        await pruneClients(tx as unknown as Db);
+        await admitClient(tx as unknown as Db, client.registrationSourceHash);
         await tx.insert(mcpOauthClients).values(client);
       });
       return { ...parsed.data, client_id: client.id, client_id_issued_at: Math.floor(Date.now() / 1000) };
     },
-    async authorize(input: unknown) {
+    async authorize(input: unknown, source = "unknown") {
       await assertEnabled();
       const parsed = authorizeSchema.safeParse(input);
       if (!parsed.success) throw new McpOAuthError("invalid_request", "A registered client, exact redirect URI, resource, and S256 PKCE challenge are required.");
       const p = parsed.data;
       const client = await resolveClient(p.client_id);
-      if (!client || !client.grantTypes.includes("authorization_code") || !client.redirectUris.includes(p.redirect_uri)) {
+      if (!client || !client.grantTypes.includes("authorization_code") || !mcpRedirectMatches(client.redirectUris, p.redirect_uri, client.native)) {
         throw new McpOAuthError("invalid_request", "Unknown client or redirect URI.");
       }
       if (p.resource !== config.resource) throw new McpOAuthError("invalid_target", "Resource does not match this Paperclip MCP endpoint.");
@@ -277,6 +290,7 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
         if (!counts || counts.total >= 1000 || counts.client >= 10) {
           throw new McpOAuthError("temporarily_unavailable", "Too many pending connection requests. Retry later.", 429);
         }
+        await retainMetadataClient(tx as unknown as Db, client, source);
         await tx.insert(mcpOauthRequests).values({
           id, clientId: client.id, redirectUri: p.redirect_uri, resource: p.resource, scopes,
           requestedCompanyId: p.company_id ?? null,

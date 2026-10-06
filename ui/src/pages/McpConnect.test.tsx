@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, expect, it, vi } from "vitest";
 import { api } from "../api/client";
-import { McpConnectPage } from "./McpConnect";
+import { McpConnectPage, McpDevicePage } from "./McpConnect";
 
 const route = vi.hoisted(() => ({ id: "request-one", companyId: null as string | null, unavailable: false, canWrite: true, requestedWrite: true }));
 vi.mock("@/lib/router", () => ({
@@ -33,12 +33,12 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-function setup() {
+function setup(device = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
-  const render = () => flushSync(() => root.render(<QueryClientProvider client={client}><McpConnectPage /></QueryClientProvider>));
+  const render = () => flushSync(() => root.render(<QueryClientProvider client={client}>{device ? <McpDevicePage initialCode="MIST-YPED" /> : <McpConnectPage />}</QueryClientProvider>));
   render();
   return {
     client, container, render,
@@ -47,6 +47,19 @@ function setup() {
     cleanup: () => { flushSync(() => root.unmount()); container.remove(); client.clear(); },
   };
 }
+
+it("lets a person correct an invalid device code without reloading", async () => {
+  vi.mocked(api.get).mockRejectedValueOnce(new Error("Invalid code"));
+  const page = setup(true);
+  try {
+    await vi.waitFor(() => expect(page.container.textContent).toContain("Invalid code"));
+    const edit = Array.from(page.container.querySelectorAll("button")).find(item => item.textContent === "Enter a different code")!;
+    flushSync(() => edit.click());
+    expect(page.container.querySelector<HTMLInputElement>("#device-code")?.value).toBe("MIST-YPED");
+    expect(page.container.querySelector("form")).not.toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
+  } finally { page.cleanup(); }
+});
 
 it("identifies the receiving app and registered callback origin before approval", async () => {
   route.companyId = "company-one";

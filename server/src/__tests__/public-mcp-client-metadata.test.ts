@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createClientMetadataResolver } from "../services/public-mcp/client-metadata.js";
+import { createClientMetadataResolver, mcpRedirectMatches } from "../services/public-mcp/client-metadata.js";
 import { mcpInvitation, mcpSetupMarkdown } from "@paperclipai/shared";
 import { renderMcpSetup } from "../services/public-mcp/setup.js";
 
@@ -7,6 +7,18 @@ const id = "https://assistant.example/client.json";
 const document = { client_id: id, client_name: "Example", redirect_uris: ["http://127.0.0.1:1234/callback"] };
 const response = (data: unknown, headers: Record<string, string> = {}) => new Response(JSON.stringify(data), { headers: { "content-type": "application/json", ...headers } });
 describe("public MCP client metadata", () => {
+  it("allows only the port to change for declared native loopback clients", () => {
+    const registered = ["http://127.0.0.1/callback", "http://localhost/callback", "http://[::1]/callback"];
+    for (const host of ["127.0.0.1", "localhost", "[::1]"]) {
+      expect(mcpRedirectMatches(registered, `http://${host}:55023/callback`, true)).toBe(true);
+      expect(mcpRedirectMatches(registered, `http://${host}:55023/callback`, false)).toBe(false);
+    }
+    for (const uri of ["http://127.0.0.1:55023/other", "http://127.0.0.1:55023/callback?next=evil", "http://127.0.0.1:55023/callback#code", "http://127.0.0.1.evil.test:55023/callback", "http://evil@127.0.0.1:55023/callback", "https://127.0.0.1:55023/callback", "http://127.0.0.2:55023/callback"]) {
+      expect(mcpRedirectMatches(registered, uri, true)).toBe(false);
+    }
+    expect(mcpRedirectMatches(["https://example.com/callback"], "https://example.com:55023/callback", true)).toBe(false);
+    expect(mcpRedirectMatches(["http://127.0.0.1/callback"], "http://localhost:55023/callback", true)).toBe(false);
+  });
   it("validates the client identity and bounds cache reuse", async () => {
     const fetch = vi.fn(async () => response(document, { "cache-control": "max-age=300" }));
     const resolve = createClientMetadataResolver(fetch);

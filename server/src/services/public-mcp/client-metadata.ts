@@ -8,8 +8,18 @@ export function validMcpRedirect(value: string) {
       && (url.protocol === "https:" || (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)));
   } catch { return false; }
 }
+/** RFC 8252: native loopback listeners choose an ephemeral port, not a new callback. */
+export function mcpRedirectMatches(registered: string[], requested: string, native: boolean) {
+  if (registered.includes(requested)) return true;
+  if (!native || !validMcpRedirect(requested)) return false;
+  const loopbackAuthority = /^(http:\/\/(?:127\.0\.0\.1|\[::1\]|localhost))(?::[0-9]+)?(?=\/|$)/;
+  if (!loopbackAuthority.test(requested)) return false;
+  return registered.some(uri => validMcpRedirect(uri) && loopbackAuthority.test(uri)
+    && uri.replace(loopbackAuthority, "$1") === requested.replace(loopbackAuthority, "$1"));
+}
 const metadataSchema = z.object({
   client_id: z.string().max(2048), client_name: z.string().trim().min(1).max(100),
+  application_type: z.enum(["native", "web"]).optional(),
   redirect_uris: z.array(z.string().max(2048).refine(validMcpRedirect)).max(10),
   token_endpoint_auth_method: z.literal("none").default("none"),
   grant_types: z.array(z.enum(["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"])).default(["authorization_code"]),

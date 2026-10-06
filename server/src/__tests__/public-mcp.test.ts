@@ -127,6 +127,29 @@ describe.skipIf(!support.supported)("public MCP OAuth and tool boundary", () => 
     expect((await cimd.authenticate(tokens.access_token)).grant.companyId).toBe(f.company.id);
   });
 
+  it("admits CIMD clients atomically under durable source quotas and cleans stale registrations", async () => {
+    const source = "cimd-quota-source";
+    const prefix = `https://quota-${randomUUID()}.example/`;
+    const cimd = createPublicMcpOAuth(db, config, { metadataFetch: async url => new Response(JSON.stringify({ client_id: url.toString(), client_name: "Quota client", redirect_uris: [redirectUri] }), { headers: { "content-type": "application/json" } }) });
+    const input = { client_id: prefix + "rejected.json", redirect_uri: redirectUri, response_type: "code", resource: "https://wrong.example/mcp", code_challenge: challenge, code_challenge_method: "S256" };
+    await expect(cimd.authorize(input, source)).rejects.toThrow();
+    expect(await db.select().from(mcpOauthClients).where(eq(mcpOauthClients.id, input.client_id))).toHaveLength(0);
+    const old = prefix + "old.json";
+    await db.insert(mcpOauthClients).values({ id: old, name: "Expired", redirectUris: [redirectUri], createdAt: new Date(Date.now() - 70 * 60_000) });
+    const ids = Array.from({ length: 7 }, (_, i) => prefix + i + ".json");
+    try {
+      for (const client_id of ids.slice(0, 6)) await cimd.authorize({ ...input, client_id, resource: config.resource }, source);
+      await expect(cimd.authorize({ ...input, client_id: ids[6], resource: config.resource }, source)).rejects.toMatchObject({ status: 429 });
+      expect(await db.select().from(mcpOauthClients).where(eq(mcpOauthClients.id, ids[6]!))).toHaveLength(0);
+      expect(await db.select().from(mcpOauthClients).where(eq(mcpOauthClients.id, old))).toHaveLength(0);
+    } finally {
+      for (const id of ids) {
+        await db.delete(mcpOauthRequests).where(eq(mcpOauthRequests.clientId, id));
+        await db.delete(mcpOauthClients).where(eq(mcpOauthClients.id, id));
+      }
+    }
+  });
+
   it("requires exact redirect, resource, S256 PKCE and real browser consent", async () => {
     await expect(oauth.register({ client_name: "bad", redirect_uris: ["https://u:p@example.com"] })).rejects.toThrow();
     const client = await oauth.register({ client_name: "Client", redirect_uris: [redirectUri] });
@@ -151,6 +174,23 @@ describe.skipIf(!support.supported)("public MCP OAuth and tool boundary", () => 
     const stored = await db.select().from(mcpOauthTokens).where(eq(mcpOauthTokens.grantId, principal.grant.id));
     expect(stored.map((t) => t.tokenHash)).toContain(hashMcpSecret(f.tokens.access_token));
     expect(JSON.stringify(stored)).not.toContain(f.tokens.access_token);
+  });
+
+  it("accepts CIMD native ephemeral ports but binds redemption to the authorized callback", async () => {
+    const f = await fixture();
+    const clientId = "https://native.example/client.json";
+    const callback = "http://127.0.0.1:55023/callback";
+    const cimd = createPublicMcpOAuth(db, config, { metadataFetch: async () => new Response(JSON.stringify({
+      client_id: clientId, client_name: "Native client", application_type: "native", redirect_uris: ["http://127.0.0.1/callback"],
+    }), { headers: { "content-type": "application/json" } }) });
+    const request = { client_id: clientId, redirect_uri: callback, response_type: "code", resource: config.resource, code_challenge: challenge, code_challenge_method: "S256" };
+    await expect(cimd.authorize({ ...request, redirect_uri: "http://127.0.0.1:55023/other" })).rejects.toThrow();
+    const id = (await cimd.authorize(request)).split("/").at(-1)!;
+    const consent = await cimd.consent(id, f.actor, { decision: "approve", companyId: f.company.id, allowWrites: false });
+    expect(new URL(consent.redirectUrl).origin).toBe("http://127.0.0.1:55023");
+    const exchange = { grant_type: "authorization_code", client_id: clientId, redirect_uri: callback, resource: config.resource, code: new URL(consent.redirectUrl).searchParams.get("code"), code_verifier: verifier };
+    await expect(cimd.token({ ...exchange, redirect_uri: "http://127.0.0.1:55024/callback" })).rejects.toThrow();
+    expect((await cimd.authenticate((await cimd.token(exchange)).access_token)).grant.companyId).toBe(f.company.id);
   });
 
   it("pins consent to the requested organization without exposing other memberships", async () => {

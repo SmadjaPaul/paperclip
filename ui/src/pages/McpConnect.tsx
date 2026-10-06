@@ -18,7 +18,7 @@ export function McpConnectPage() {
 export function McpDevicePage({ initialCode }: { initialCode?: string } = {}) {
   const [code, setCode] = useState(initialCode ?? new URLSearchParams(window.location.search).get("user_code") ?? "");
   const [submitted, setSubmitted] = useState(code);
-  if (submitted) return <McpConnectRequest key={submitted} id={submitted} device />;
+  if (submitted) return <McpConnectRequest key={submitted} id={submitted} device onEditCode={() => setSubmitted("")} />;
   return <div className="mx-auto max-w-xl py-10"><Card className="space-y-4 p-6"><Paperclip className="size-8" /><h1 className="text-xl font-semibold">Connect your assistant</h1>
     <form className="space-y-4" onSubmit={event => { event.preventDefault(); setSubmitted(code.trim()); }}>
       <label htmlFor="device-code" className="text-sm">Enter the code shown by your assistant</label>
@@ -27,7 +27,7 @@ export function McpDevicePage({ initialCode }: { initialCode?: string } = {}) {
     </form></Card></div>;
 }
 
-function McpConnectRequest({ id, device = false }: { id: string; device?: boolean }) {
+function McpConnectRequest({ id, device = false, onEditCode }: { id: string; device?: boolean; onEditCode?: () => void }) {
   const [companyId, setCompanyId] = useState("");
   const [writeEnabled, setWriteEnabled] = useState(true);
   const [deviceResult, setDeviceResult] = useState<"approved" | "denied" | null>(null);
@@ -50,6 +50,7 @@ function McpConnectRequest({ id, device = false }: { id: string; device?: boolea
       {device && <p className="text-sm">Confirm this matches the code shown by your assistant: <strong className="font-mono">{id.toUpperCase()}</strong></p>}
       {request.isPending && <p className="text-sm text-muted-foreground">Loading connection request…</p>}
       {request.error && <p className="text-sm text-destructive">{request.error.message} Start a new connection from your assistant.</p>}
+      {device && request.error && <Button variant="outline" onClick={onEditCode}>Enter a different code</Button>}
       {data && <>
         {data.requiresSignIn ? <Button asChild><Link to={`/auth?next=${encodeURIComponent(returnPath)}`}>Sign in / Create account</Link></Button> : <>
           {data.requestedCompanyId ? <div className="flex items-center gap-4 rounded-md border border-border p-4">

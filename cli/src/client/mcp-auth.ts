@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { PUBLIC_MCP_PATH, PUBLIC_MCP_SCOPES } from "@paperclipai/shared";
@@ -50,29 +51,30 @@ export async function withMcpCredentialLock<T>(file: string, work: () => Promise
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   const stat = await fs.lstat(directory);
   if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) throw new Error("The MCP credential directory must be private (mode 0700).");
-  const lockPath = file + ".lock";
+  // SQLite's OS lock is released when a process exits, including during acquisition.
+  // No PID-file deletion or stale-lock takeover can race a new refresh owner.
+  const lockPath = file + ".mutex.sqlite";
+  const handle = await fs.open(lockPath, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
+  try {
+    const lockStat = await handle.stat();
+    if (!lockStat.isFile() || (lockStat.mode & 0o077) !== 0) throw new Error("The MCP mutex file must be private (mode 0600).");
+  } finally { await handle.close(); }
+  const lock = new DatabaseSync(lockPath);
   const deadline = Date.now() + 30_000;
-  let lock;
-  while (!lock) {
-    try {
-      lock = await fs.open(lockPath, "wx", 0o600);
-      try { await lock.writeFile(String(process.pid)); }
-      catch (error) { await lock.close(); await fs.unlink(lockPath).catch(() => {}); throw error; }
-    }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      // An interrupted refresh must not leave every later invocation blocked.
-      const pid = Number(await fs.readFile(lockPath, "utf8").catch(() => ""));
-      if (Number.isInteger(pid) && pid > 0) {
-        try { process.kill(pid, 0); }
-        catch (failure) { if ((failure as NodeJS.ErrnoException).code === "ESRCH") { await fs.unlink(lockPath).catch(() => {}); continue; } }
+  try {
+    lock.exec("PRAGMA busy_timeout = 0");
+    while (true) {
+      try { lock.exec("BEGIN IMMEDIATE"); break; }
+      catch (error) {
+        if ((error as { errcode?: number }).errcode !== 5) throw error;
+        if (Date.now() >= deadline) throw new Error("Another Paperclip MCP login or refresh is in progress. Try again.");
+        await sleep(100);
       }
-      if (Date.now() >= deadline) throw new Error("Another Paperclip MCP login or refresh is in progress. Try again.");
-      await sleep(100);
     }
-  }
-  try { return await work(); }
-  finally { await lock.close(); await fs.unlink(lockPath).catch(() => {}); }
+    try { return await work(); }
+    finally { lock.exec("ROLLBACK"); }
+  } finally { lock.close(); }
+
 }
 
 async function jsonRequest(url: string, body?: Json) {
@@ -91,7 +93,7 @@ async function safeJson(response: Response): Promise<Json> {
 async function revoke(credential: McpCredential) {
   const response = await fetch(credential.issuer + "/mcp/oauth/revoke", { method: "POST", redirect: "error", signal: AbortSignal.timeout(20_000),
     headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: credential.clientId, token: credential.refreshToken ?? credential.accessToken }) });
-  if (!response.ok) throw new Error("Could not revoke the previous connection. Your saved credentials were preserved.");
+  if (!response.ok) throw new Error("Could not revoke the previous connection.");
 }
 async function discovery(resource: string) {
   const origin = new URL(resource).origin;
@@ -153,16 +155,22 @@ export async function loginMcpDevice(raw: string, companyId?: string, notify: (m
     if (identity.isError || typeof connected?.companyId !== "string" || (companyId && connected.companyId !== companyId)) throw new Error("The approved organization did not match. Reconnect before doing work.");
     credential.companyId = connected.companyId;
     const file = credentialPath(resource);
-    await withMcpCredentialLock(file, async () => {
-      const previous = await readCredential(file);
-      if (previous && previous.resource === resource && previous.issuer === issuer) {
-        await revoke(previous);
-      }
-      await saveCredential(file, credential);
-    });
+    await replaceMcpCredential(file, credential, notify);
     return { resource, companyId: credential.companyId };
   }
   throw new Error("Device authorization expired. Start login again.");
+}
+
+export async function replaceMcpCredential(file: string, credential: McpCredential, notify: (message: string) => void) {
+  await withMcpCredentialLock(file, async () => {
+    const previous = await readCredential(file);
+    // Persist the working replacement before changing authority on the server.
+    await saveCredential(file, credential);
+    if (previous && previous.resource === credential.resource && previous.issuer === credential.issuer) {
+      try { await revoke(previous); }
+      catch { notify("Connected. The previous connection could not be revoked; revoke it in Paperclip Connections."); }
+    }
+  });
 }
 
 export async function mcpAccessToken(raw: string) {

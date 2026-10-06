@@ -80,7 +80,7 @@ export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnTyp
   router.use("/mcp/oauth", authRateLimit(), express.urlencoded({ extended: false, limit: "16kb" }));
   router.post("/mcp/oauth/register", async (req, res) => res.status(201).json(await oauth.register(req.body, req.ip ?? req.socket.remoteAddress ?? "unknown")));
   router.post("/mcp/oauth/device_authorization", async (req, res) => res.json(await oauth.deviceAuthorize(req.body, req.ip ?? req.socket.remoteAddress ?? "unknown")));
-  router.get("/mcp/oauth/authorize", async (req, res) => res.redirect(303, await oauth.authorize(req.query)));
+  router.get("/mcp/oauth/authorize", async (req, res) => res.redirect(303, await oauth.authorize(req.query, req.ip ?? req.socket.remoteAddress ?? "unknown")));
   router.post("/mcp/oauth/token", async (req, res) => res.json(await oauth.token(req.body ?? {})));
   router.post("/mcp/oauth/revoke", async (req, res) => {
     if (typeof req.body?.token !== "string" || typeof req.body?.client_id !== "string") throw new McpOAuthError("invalid_request", "A token and client_id are required.");

@@ -1,13 +1,15 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { credentialPath, mcpAccessToken, mcpResource, mcpRpc, withMcpCredentialLock } from "../client/mcp-auth.js";
+import { credentialPath, mcpAccessToken, mcpResource, mcpRpc, replaceMcpCredential, withMcpCredentialLock } from "../client/mcp-auth.js";
 
 const resource = "https://paperclip.example/mcp/paperclip";
 let home: string;
 beforeEach(async () => { home = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-credentials-")); vi.stubEnv("PAPERCLIP_HOME", home); });
-afterEach(async () => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); await fs.rm(home, { recursive: true, force: true }); });
+afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); await fs.rm(home, { recursive: true, force: true }); });
 async function seed(value: unknown, mode = 0o600) {
   const file = credentialPath(resource);
   await fs.mkdir(path.dirname(file), { mode: 0o700 });
@@ -59,5 +61,36 @@ describe("MCP protected credential transport", () => {
     const file = credentialPath(resource);
     await expect(withMcpCredentialLock(file, async () => { throw new Error("failed"); })).rejects.toThrow("failed");
     await expect(withMcpCredentialLock(file, async () => "recovered")).resolves.toBe("recovered");
+  });
+  it("recovers an OS mutex after its owner is killed without a stale-file takeover", async () => {
+    const file = await seed(stored());
+    await fs.writeFile(file + ".mutex.sqlite", "", { mode: 0o600 });
+    const child = spawn(process.execPath, ["--input-type=module", "-e", 'import {DatabaseSync} from "node:sqlite"; const db=new DatabaseSync(process.argv[1]); db.exec("BEGIN IMMEDIATE"); console.log("locked"); setInterval(()=>{},1000);', file + ".mutex.sqlite"], { stdio: ["ignore", "pipe", "pipe"] });
+    try {
+      await once(child.stdout!, "data");
+      let entered = false;
+      const next = withMcpCredentialLock(file, async () => { entered = true; return "recovered"; });
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(entered).toBe(false);
+      const exit = once(child, "exit"); child.kill("SIGKILL"); await exit;
+      await expect(next).resolves.toBe("recovered");
+    } finally { child.kill("SIGKILL"); }
+  });
+  it("preserves a working connection when replacement storage fails", async () => {
+    const file = await seed(stored());
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    vi.spyOn(fs, "rename").mockRejectedValueOnce(new Error("disk failure"));
+    await expect(replaceMcpCredential(file, { ...stored(), accessToken: "new-access" }, vi.fn())).rejects.toThrow("disk failure");
+    expect(JSON.parse(await fs.readFile(file, "utf8")).accessToken).toBe("private-access");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("retains the new saved credential and reports failed previous-grant cleanup", async () => {
+    const file = await seed(stored()); const notify = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      expect(JSON.parse(await fs.readFile(file, "utf8")).accessToken).toBe("new-access");
+      return new Response(null, { status: 503 });
+    }));
+    await replaceMcpCredential(file, { ...stored(), accessToken: "new-access" }, notify);
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("revoke it in Paperclip Connections"));
   });
 });

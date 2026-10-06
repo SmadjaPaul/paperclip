@@ -64,3 +64,11 @@ no access. Keep the existing experimental setting and simplified consent UI.
   Butter application deployment and the complete screenshot gallery. Butter's
   persistent human grant has not been approved; do not claim a live Butter MCP
   read or delegation before that consent occurs.
+
+### Review and real-client findings (October 5)
+
+- Actual Codex 0.153.4 CIMD login exposed its native ephemeral loopback callback requirement. Added RFC 8252 port-only matching for verified native metadata; host/path/query remain exact and token redemption binds the exact authorized callback.
+- Applied source quotas and stale-client cleanup to CIMD registration in the same transaction as admitted requests. Rejected authorization requests do not retain clients.
+- Replaced PID-file refresh locks with crash-released SQLite OS locks; replacement credentials are saved before the previous grant is revoked. A failed cleanup is reported without discarding the working replacement.
+- Added device-code correction without leaving the consent flow.
+- Initial paid invitation matrix: 15/15 passes across Mini, Haiku, and Sonnet; one earlier database startup failure remains recorded. Final source-pinned qualification follows review fixes. Actual OpenCode reused the existing disposable organization's grant and retrieved its saved report in a new conversation.
