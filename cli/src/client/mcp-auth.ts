@@ -46,7 +46,22 @@ async function saveCredential(file: string, credential: McpCredential) {
 }
 
 /** One refresh owner per resource, including independent CLI/bridge processes. */
+const processLocks = new Map<string, Promise<void>>();
 export async function withMcpCredentialLock<T>(file: string, work: () => Promise<T>) {
+  const key = path.resolve(file);
+  const previous = processLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>(resolve => { release = resolve; });
+  processLocks.set(key, current);
+  await previous;
+  try { return await withMcpOsLock(key, work); }
+  finally {
+    release();
+    if (processLocks.get(key) === current) processLocks.delete(key);
+  }
+}
+
+async function withMcpOsLock<T>(file: string, work: () => Promise<T>) {
   const directory = path.dirname(file);
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   const stat = await fs.lstat(directory);
@@ -54,11 +69,14 @@ export async function withMcpCredentialLock<T>(file: string, work: () => Promise
   // SQLite's OS lock is released when a process exits, including during acquisition.
   // No PID-file deletion or stale-lock takeover can race a new refresh owner.
   const lockPath = file + ".mutex.sqlite";
-  const handle = await fs.open(lockPath, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
+  // Never open/close an existing SQLite file outside SQLite: POSIX close can
+  // release another connection's process-owned lock. The in-process queue also
+  // serializes initial file creation before any SQLite descriptor is opened.
   try {
-    const lockStat = await handle.stat();
-    if (!lockStat.isFile() || (lockStat.mode & 0o077) !== 0) throw new Error("The MCP mutex file must be private (mode 0600).");
-  } finally { await handle.close(); }
+    await fs.writeFile(lockPath, "", { flag: "wx", mode: 0o600 });
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+  const lockStat = await fs.lstat(lockPath);
+  if (!lockStat.isFile() || lockStat.isSymbolicLink() || (lockStat.mode & 0o077) !== 0) throw new Error("The MCP mutex file must be private (mode 0600).");
   const lock = new DatabaseSync(lockPath);
   const deadline = Date.now() + 30_000;
   try {

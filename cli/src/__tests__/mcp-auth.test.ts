@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { credentialPath, mcpAccessToken, mcpResource, mcpRpc, replaceMcpCredential, withMcpCredentialLock } from "../client/mcp-auth.js";
@@ -83,6 +83,23 @@ describe("MCP protected credential transport", () => {
     await expect(replaceMcpCredential(file, { ...stored(), accessToken: "new-access" }, vi.fn())).rejects.toThrow("disk failure");
     expect(JSON.parse(await fs.readFile(file, "utf8")).accessToken).toBe("private-access");
     expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("keeps the OS lock held while a same-process caller waits", async () => {
+    const file = await seed(stored());
+    let release!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const first = withMcpCredentialLock(file, async () => { entered(); await held; });
+    await ready;
+    let secondEntered = false;
+    const second = withMcpCredentialLock(file, async () => { secondEntered = true; });
+    try {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const probe = spawnSync(process.execPath, ["--input-type=module", "-e", 'import{DatabaseSync}from"node:sqlite";const db=new DatabaseSync(process.argv[1]);try{db.exec("BEGIN IMMEDIATE");process.exitCode=0}catch(e){process.exitCode=e.errcode===5?5:1}finally{db.close()}', file + ".mutex.sqlite"]);
+      expect(probe.status).toBe(5);
+      expect(secondEntered).toBe(false);
+    } finally { release(); await Promise.all([first, second]); }
   });
   it("retains the new saved credential and reports failed previous-grant cleanup", async () => {
     const file = await seed(stored()); const notify = vi.fn();
