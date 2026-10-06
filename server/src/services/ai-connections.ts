@@ -385,7 +385,7 @@ export function aiConnectionService(db: Db) {
       !installs.length &&
       !(
         (input.allowUninstalledPersonal &&
-          (binding.mode === "responsible_user" || binding.mode === "delegated") && grant.subjectUserId === userId) ||
+          grant.kind === "user" && grant.subjectUserId === userId) ||
         (input.allowUninstalledShared && binding.mode === "shared" && grant.kind === "organization")
       )
     )

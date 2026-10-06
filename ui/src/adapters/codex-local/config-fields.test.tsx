@@ -62,7 +62,7 @@ describe("Paperclip Runner Codex configuration", () => {
     const html = await renderRunner({ provider: "codex" }, "Harness");
 
     expect(html).toContain('aria-label="Harness"');
-    expect(html).toContain("OpenCode 1.18.32");
+    expect(html).toContain("OpenCode 1.18.34");
     expect(html).toContain('ACP agents');
     expect(html).not.toContain("Permission mode");
     expect(html).not.toContain("Ask when requested");
@@ -79,7 +79,7 @@ describe("Paperclip Runner Codex configuration", () => {
     });
 
     expect(html).toContain(
-      'OpenCode 1.18.32',
+      'OpenCode 1.18.34',
     );
     expect(html).toContain("Full auto (allow)");
     expect(html).toContain('aria-label="Permission mode"');
