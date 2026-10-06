@@ -74,7 +74,11 @@ export function hasCursorDeniedTurnTerminal(input: {
 }): boolean {
   const run = rec(input.run), issue = rec(input.issue);
   const missingResult = run.errorCode === "native_session_interrupted" && run.error === "native_finalization_missing: session returned no semantic result";
-  const declined = run.errorCode === "native_permission_declined" && run.error === "native_finalization_missing: session returned no semantic result; Cursor permission was declined; explicit direction is required";
+  const declined = run.errorCode === "native_permission_declined" && [
+    "native_finalization_missing: session returned no semantic result; provider permission was declined; explicit direction is required",
+    // Retained results from before the provider lifecycle boundary cleanup.
+    "native_finalization_missing: session returned no semantic result; Cursor permission was declined; explicit direction is required",
+  ].includes(run.error);
   if (!id(input.runId) || !id(input.turnId) || !id(input.requestId) || run.id !== input.runId || run.nativeIssueId !== issue.id
     || run.status !== "failed" || run.runtimeMode !== "native" || issue.status !== (declined ? "blocked" : "in_progress")
     || (!missingResult && !declined)) return false;
