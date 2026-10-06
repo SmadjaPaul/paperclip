@@ -59,6 +59,12 @@ export function createClientMetadataResolver(fetcher: MetadataFetch = guardedFet
     } finally { await reader.cancel().catch(() => {}); }
     const value = metadataSchema.parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
     if (value.client_id !== id) throw new Error("Client metadata ID mismatch.");
+    // Older public clients (including Claude Code) omit the OIDC application_type.
+    // Infer native only when every declared callback is an HTTP loopback listener.
+    if (!value.application_type && value.redirect_uris.length > 0 && value.redirect_uris.every(uri => {
+      const redirect = new URL(uri);
+      return redirect.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(redirect.hostname);
+    })) value.application_type = "native";
     const control = response.headers.get("cache-control") ?? "";
     const maxAge = /(?:^|,)\s*max-age=(\d+)/i.exec(control)?.[1];
     const ttl = /(?:no-store|no-cache)/i.test(control) ? 0 : Math.min(300, maxAge ? Number(maxAge) : 60) * 1000;

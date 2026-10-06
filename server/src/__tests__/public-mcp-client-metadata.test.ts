@@ -26,6 +26,11 @@ describe("public MCP client metadata", () => {
     await resolve(id); expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0]?.[0]).toEqual(new URL(id));
   });
+  it("recognizes older loopback-only native metadata without widening declared web clients", async () => {
+    expect((await createClientMetadataResolver(async () => response(document))(id)).application_type).toBe("native");
+    expect((await createClientMetadataResolver(async () => response({ ...document, application_type: "web" }))(id)).application_type).toBe("web");
+    expect((await createClientMetadataResolver(async () => response({ ...document, redirect_uris: [...document.redirect_uris, "https://remote.example/callback"] }))(id)).application_type).toBeUndefined();
+  });
   it.each([
     { ...document, client_id: "https://other.example/client.json" },
     { ...document, redirect_uris: ["https://name:secret@example.com/callback"] },
