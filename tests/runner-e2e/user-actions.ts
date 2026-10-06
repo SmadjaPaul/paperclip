@@ -8,6 +8,7 @@ export async function createTaskThroughUi(input: {
   prompt: string;
   workMode: "standard" | "planning" | "ask";
   projectName?: string;
+  requireExplicitTitle?: boolean;
 }) {
   const issuesUrl = `/${encodeURIComponent(input.issuePrefix)}/issues`;
   const newTask = input.page.getByRole("button", { name: "New Task" }).first();
@@ -33,41 +34,42 @@ export async function createTaskThroughUi(input: {
     );
   }
   await newTask.click();
-  await input.page.getByPlaceholder("Task title").fill(input.title);
-  await input.page
-    .getByRole("dialog")
+  const dialog = input.page.getByRole("dialog", { name: "New task", exact: true });
+  const titleInput = dialog.getByRole("textbox", { name: "Task title", exact: true });
+  if (await titleInput.isVisible()) await titleInput.fill(input.title);
+  else if (input.requireExplicitTitle) throw new Error("This title-preservation case requires a visible explicit title input");
+  await dialog
     .getByRole("textbox", { name: "editable markdown", exact: true })
     .fill(input.prompt);
   if (input.workMode !== "standard") {
-    await input.page
-      .getByRole("dialog")
-      .locator(`[data-issue-work-mode-chip="standard"]`)
-      .click();
-    await input.page
-      .locator(`[data-issue-work-mode="${input.workMode}"]`)
-      .click();
+    await dialog.getByRole("button", { name: "Add to composer", exact: true }).click();
+    await input.page.getByTestId(input.workMode === "planning" ? "composer-add-plan" : "composer-add-ask").click();
   }
-  await input.page
-    .getByRole("button", { name: "Assignee", exact: true })
+  await dialog
+    .getByRole("button", { name: "Select assignee", exact: true })
     .click();
-  await input.page
-    .getByPlaceholder("Search assignees...")
-    .fill(input.agentName);
-  await input.page.getByText(input.agentName, { exact: true }).last().click();
+  await input.page.getByRole("searchbox", { name: "Search assignees", exact: true }).fill(input.agentName);
+  await input.page.getByRole("option").filter({ has: input.page.getByText(input.agentName, { exact: true }) }).click();
+  await expect(input.page.getByRole("searchbox", { name: "Search assignees", exact: true })).toBeHidden();
   if (input.projectName) {
-    const dialog = input.page.getByRole("dialog");
-    // Selecting the assignee advances focus to this selector and opens it.
-    // Focus is idempotent here; clicking would toggle an already-open popover
-    // closed before the search field can be filled.
-    await dialog.getByRole("button", { name: "Project", exact: true }).focus();
-    await dialog.getByPlaceholder("Search projects...").fill(input.projectName);
-    await dialog.getByText(input.projectName, { exact: true }).last().click();
+    await dialog.getByRole("button", { name: "Project", exact: true }).click();
+    await input.page.getByPlaceholder("Search projects...").fill(input.projectName);
+    await input.page.getByText(input.projectName, { exact: true }).last().click();
   }
   const submittedAtMs = Date.now();
-  await input.page
-    .getByRole("button", { name: "Create Task", exact: true })
-    .click();
-  return submittedAtMs;
+  // The prompt-only composer generates a provisional title which the provider
+  // can rename immediately. Bind the fixture to the actual creation response.
+  const [response] = await Promise.all([
+    input.page.waitForResponse(response => response.request().method() === "POST"
+      && /^\/api\/companies\/[^/]+\/issues$/.test(new URL(response.url()).pathname)),
+    dialog.getByRole("button", { name: "Create task", exact: true }).click(),
+  ]);
+  expect(response.status()).toBe(201);
+  const issue = await response.json() as { id: string; companyId: string };
+  expect(new URL(response.url()).pathname).toBe(`/api/companies/${issue.companyId}/issues`);
+  expect(issue.id).toEqual(expect.any(String));
+  expect(issue.id.length).toBeGreaterThan(0);
+  return { submittedAtMs, issueId: issue.id };
 }
 
 export async function submitTaskReply(

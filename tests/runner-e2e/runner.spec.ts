@@ -1079,9 +1079,9 @@ for (const execution of executions) {
             matcherResults = evidence.checks.map(check => ({ matcher: { kind: "json_path" as const, path: `firstTask.checks.${check.id}`, expected: true }, passed: check.passed, detail: check.detail }));
           },
           createOrdinary: async (taskTitle, taskPrompt) => {
-            await createTaskThroughUi({ page, issuePrefix: fixtures!.company.issuePrefix!, agentName: fixtures!.agent.name, title: taskTitle, prompt: taskPrompt, workMode: "standard" });
+            const createdTask = await createTaskThroughUi({ page, issuePrefix: fixtures!.company.issuePrefix!, agentName: fixtures!.agent.name, title: taskTitle, prompt: taskPrompt, workMode: "standard" });
             const created = await pollUntil({ label: "ordinary UI-created task", deadlineAt: startedAtMs + deadlineMs,
-              load: async () => (await api.get<IssueRecord[]>(`/api/companies/${fixtures!.company.id}/issues?limit=100`)).find(row => row.title === taskTitle), accept: row => Boolean(row) });
+              load: async () => (await api.get<IssueRecord[]>(`/api/companies/${fixtures!.company.id}/issues?limit=100`)).find(row => row.id === createdTask.issueId), accept: row => Boolean(row) });
             if (!created) throw new Error("Missing ordinary task");
             return created;
           },
@@ -1106,8 +1106,7 @@ for (const execution of executions) {
           { timeout: Math.max(1, startedAtMs + deadlineMs - Date.now()) })
           .catch((cause: unknown) => new Error("Could not capture task creation response", { cause }))
         : null;
-      turnSubmissionTimesMs.push(
-        await createTaskThroughUi({
+      const createdTask = await createTaskThroughUi({
           page,
           issuePrefix,
           agentName: fixtures.agent.name,
@@ -1115,8 +1114,9 @@ for (const execution of executions) {
           prompt,
           workMode: execution.task.workMode,
           projectName: fixtures.project?.name,
-        }),
-      );
+          requireExplicitTitle: execution.suite.id === "task-titles" && Boolean(title),
+        });
+      turnSubmissionTimesMs.push(createdTask.submittedAtMs);
 
       const deadlineAt = startedAtMs + deadlineMs;
       if (titleCreationResponse) {
@@ -1131,9 +1131,9 @@ for (const execution of executions) {
         deadlineAt,
         load: async () => {
           const issues = await api.get<IssueRecord[]>(
-            `/api/companies/${fixtures!.company.id}/issues?q=${encodeURIComponent(title)}&limit=50`,
+            `/api/companies/${fixtures!.company.id}/issues?limit=50`,
           );
-          return issues.find((candidate) => candidate.title === title);
+          return issues.find((candidate) => candidate.id === createdTask.issueId);
         },
         accept: (candidate): candidate is IssueRecord => Boolean(candidate),
       });

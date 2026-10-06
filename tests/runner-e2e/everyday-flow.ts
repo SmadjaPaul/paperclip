@@ -667,7 +667,7 @@ export async function runEverydayFlow(input: Input) {
       if (state.connections.length)
         throw new Error("New-connection story requires an unconnected company");
     }
-    await createTaskThroughUi({
+    const createdTask = await createTaskThroughUi({
       page,
       issuePrefix: prefix,
       agentName: fixtures.agent.name,
@@ -682,9 +682,9 @@ export async function runEverydayFlow(input: Input) {
       load: () =>
         api.get<StoryIssue[]>(`/api/companies/${fixtures.company.id}/issues`),
       accept: (rows) =>
-        rows.some((i) => i.title === execution.task.buildTitle(nonce)),
+        rows.some((i) => i.id === createdTask.issueId),
     }).then((rows) =>
-      rows.find((i) => i.title === execution.task.buildTitle(nonce))!,
+      rows.find((i) => i.id === createdTask.issueId)!,
     );
     input.observe(parent!, []);
     note("task-submitted", { issueId: parent!.id });

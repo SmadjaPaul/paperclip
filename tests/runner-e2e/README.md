@@ -1629,6 +1629,13 @@ Recovery-state retention uses raw cleanup results before evidence publication. A
 
 ## Public installed release smoke
 
+The shared task-creation helper uses the current prompt-only composer and binds
+each task to its actual HTTP creation response ID, since its generated title may
+change during execution. The provider-free `tests/e2e/runner-task-creation.spec.ts`
+regression verifies assignee, project, and all three work modes with paused agents.
+Explicit title-preservation cases still require a visible title input and fail
+before provider execution when that surface is unavailable.
+
 Set `PAPERCLIP_RUNNER_E2E_INSTALLED_CLI` to the absolute public consumer's
 `paperclipai/dist/index.js` for an installed-product acceptance run. Install the
 public package graph and run its ordinary `runtime setup cursor` first. The
