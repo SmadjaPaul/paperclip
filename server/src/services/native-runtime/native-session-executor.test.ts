@@ -1090,8 +1090,8 @@ describe("remote provider pack manifest", () => {
     const payload = {
       pins: {
         nodeMinimum: "24.11.0",
-        codex: "0.156.0",
-        opencode: "1.18.32",
+        codex: "0.160.0",
+        opencode: "1.18.34",
         acpx: "0.13.1",
         claudeAcp: "0.73.0",
         codexAcp: "1.6.2",
@@ -1151,7 +1151,7 @@ describe("remote provider pack manifest", () => {
       );
     await writeManifest();
     expect(readRemoteProviderPackManifest(root).payload.pins.opencode).toBe(
-      "1.18.32",
+      "1.18.34",
     );
     const cursorPath = "provider-assets/cursor/linux-x64";
     await mkdir(join(root, cursorPath), { recursive: true });
@@ -2237,7 +2237,7 @@ describe("remote preinstalled executable discovery", () => {
       const shim =
         '#!/bin/sh\ncat "$(dirname "$0")/version.txt"\nprintf "%s\\n" "$@"\n';
       await writeFile(source, shim, { mode: 0o755 });
-      await writeFile(join(installation, "version.txt"), "codex-cli 0.156.0\n");
+      await writeFile(join(installation, "version.txt"), "codex-cli 0.160.0\n");
       // Existing deployments may already have the old symlink. Never write
       // through it into the shared installation while upgrading the launcher.
       await symlink(source, target);
@@ -2250,7 +2250,7 @@ describe("remote preinstalled executable discovery", () => {
           execFileSync(target, ["--version", "argument with 'quotes'"], {
             encoding: "utf8",
           }),
-        ).toBe("codex-cli 0.156.0\n--version\nargument with 'quotes'\n");
+        ).toBe("codex-cli 0.160.0\n--version\nargument with 'quotes'\n");
         expect(await readFile(source, "utf8")).toBe(shim);
       }
       expect(await readdir(join(root, "workspace", "bin"))).toEqual(["codex"]);
@@ -2698,6 +2698,7 @@ const execution = {
 describe("retained native cleanup activation", () => {
   it.each([
     "settled",
+    "provider_transport_failed",
     "canonical_source",
     "canonical_live_owner",
     "canonical_foreign_owner",
@@ -3012,7 +3013,7 @@ describe("retained native cleanup activation", () => {
       processGroupId: mode.endsWith("live_owner") ? process.pid : 99_999_999,
       completionContractId: "contract",
       completionContractSha256: "sha",
-      errorCode: "adapter_failed",
+      errorCode: mode === "provider_transport_failed" ? "provider_transport_failed" : "adapter_failed",
       error:
         "provider_transport_failed: runner did not durably suspend before checkpoint",
       runnerProfileJson: {
@@ -3879,6 +3880,7 @@ describe("retained native cleanup activation", () => {
         "provider_home",
         "legacy_copy",
         "settled",
+        "provider_transport_failed",
         "activation_commit_stalled",
         "empty_root",
         "distinct_provider_account",
@@ -11250,7 +11252,7 @@ describe("runnerd provider runtime wiring", () => {
         }), stderr: "",
       };
       if (command.args?.[0] === "--version") return {
-        exitCode: 0, timedOut: false, stdout: "codex-cli 0.156.0", stderr: "",
+        exitCode: 0, timedOut: false, stdout: "codex-cli 0.160.0", stderr: "",
       };
       if (command.args?.[1]?.includes("base64")) return {
         exitCode: 1, timedOut: false, stdout: "", stderr: "",
@@ -11327,7 +11329,7 @@ describe("runnerd provider runtime wiring", () => {
         }), stderr: "",
       };
       if (command.args?.[0] === "--version") return {
-        exitCode: 0, timedOut: false, stdout: "codex-cli 0.156.0", stderr: "",
+        exitCode: 0, timedOut: false, stdout: "codex-cli 0.160.0", stderr: "",
       };
       if (command.args?.[2] === "paperclip-runner-launch") {
         throw new Error("fixture_stop_after_launch_staging");
@@ -11409,10 +11411,10 @@ describe("runnerd provider runtime wiring", () => {
 
   it.each([
     ...["current", "preinstalled-exact", "preinstalled-mismatch", "preinstalled-error", "preinstalled-timeout", "stale", "missing", "retained", "retained-mismatch", "retained-error", "retained-timeout", "retained-explicit"]
-      .map((image) => ({ image, version: "0.156.0", compatible: true })),
-    ...["0.149.0", "0.149.1", "0.153.4", "0.156.1"]
+      .map((image) => ({ image, version: "0.160.0", compatible: true })),
+    ...["0.149.0", "0.149.1", "0.153.4", "0.156.0", "0.160.1"]
       .map((version) => ({ image: "current", version, compatible: true })),
-    ...["0.148.9", "0.157.0", "1.0.0", "0.156.0-alpha.1", "unknown"]
+    ...["0.148.9", "0.161.0", "1.0.0", "0.160.0-alpha.1", "unknown"]
       .map((version) => ({ image: "current", version, compatible: false })),
   ])("uses shared Codex and the server-owned replacement artifact (image=$image, Codex=$version)", async ({ image, version, compatible }) => {
     const retained = image.startsWith("retained");
@@ -11506,7 +11508,7 @@ describe("runnerd provider runtime wiring", () => {
       controlPlaneRegistration: (authority: unknown) => Promise<unknown>;
     };
     await expect(transport.controlPlaneRegistration({})).rejects.toThrow(
-      compatible ? "reached-preinstalled-codex-verification" : "runner_remote_provider_artifact_incompatible: supported Codex versions >=0.149.0 <0.157.0",
+      compatible ? "reached-preinstalled-codex-verification" : "runner_remote_provider_artifact_incompatible: supported Codex versions >=0.149.0 <0.161.0",
     );
     if (!compatible) {
       expect(syncIn).not.toHaveBeenCalled();
@@ -11514,7 +11516,7 @@ describe("runnerd provider runtime wiring", () => {
       expect(onLog).not.toHaveBeenCalledWith("stderr", expect.stringContaining("using compatible Codex"));
       return;
     }
-    if (version !== "0.156.0") {
+    if (version !== "0.160.0") {
       expect(onLog).toHaveBeenCalledWith("stderr", expect.stringContaining(`using compatible Codex ${version}`));
     }
     if (needsReplacement) {

@@ -25,6 +25,35 @@ spend or enforceable per-run dollar accounting. Native AskQuestion is implemente
 defensively but is not advertised or certified. See the
 [Cursor capability contract](../architecture/runner-cursor-capabilities.md).
 
+## Merge-readiness refresh — 2026-10-05
+
+The branch incorporates mainline `72ff3a9f2` without replacing the qualified
+Cursor CLI, profile v11, patch or explicit model. Mainline's newer Codex, Claude
+and OpenCode pins remain intact. Its global sandbox Cursor CLI is separate from
+the native provider's verified 2026.09.26 distribution. Mainline completion
+feedback keeps current, company-scoped document links and blocker guidance;
+Cursor's explicit final-response format still takes precedence. Both regression
+suites are retained. The combined Runner fixture catalog contains 492 cases.
+
+The resolved dependency lock for this combined source has SHA-256
+`d3c4cffe7d127d99789cf354c5275246526f5396d2a86ce0d387352f68a2394b`.
+The image build verifies that digest before installation. The repository lockfile
+matches mainline because Actions owns lockfile updates. The artifact and live
+qualification identities below remain historical; they are not relabeled as
+new builds. A later release must assemble and verify matching packages and images
+from its release source. Merging this PR does not publish or deploy that release.
+
+An additional manual trial used the ordinary installed public package on macOS,
+the real local Cursor ACP executable and normal encrypted company credentials.
+Cursor generated a 1,777-byte counter page, validated it, registered its deliverable
+and finished the task through authenticated tools. The task and run reached
+`done` and `succeeded`. Independent download matched the workspace bytes and
+SHA-256 `0db0ddc7bcd33aed5fe7e74b2551f1c13403d3a6175239f544cab9a45ad0891e`.
+The page rendered in the browser and incremented from 0 to 1 to 2 without console
+errors. Native approval requests were approved through Paperclip. The reviewer
+did not create or edit the page. This trial uses the previously qualified public
+package; it is additional live proof, not a new certification identity.
+
 ## Qualified release candidate
 
 Cursor admission is enabled in [PR #15075](https://github.com/paperclipai/paperclip/pull/15075).

@@ -1,3 +1,6 @@
+import { retryIdempotentDatabaseOperation } from "../database-retry.js";
+import { prepareConnectionInstructionDelivery } from "./connection-instructions.js";
+import { resolveAssignedConnectionInstructionsForRun } from "./native-runtime/assigned-mcp-tools.js";
 import { externalObjectService } from "./external-objects.js";
 import { isAiAuthenticationBlocked } from "./ai-auth-failure.js";
 import { nativeRetryCancellationCommitCondition, rethrowNativeCancellationLockConflict, claimCancellationRequest, startupCancellationFence } from "./native-runtime/native-cancellation-request.js";
@@ -33,7 +36,7 @@ import { legacyControllerBootId, legacyControllerClaim, renewLegacyControllerLea
 import { completeTerminatedRemoteNativeSessionCleanup } from "../vendor/paperclip-runner/index.js";
 import { hasRemoteTerminationReceipt, remoteExecutionHasStopped, remoteTerminationReceipt, stoppedRemoteCleanupScopes } from "./remote-execution-termination.js";
 import { applyConnectorSkills, prepareConnectorSkillDelivery, resolveConnectorAssignments } from "./connector-runtime.js";
-import { admitExplicitNativeContinuation, undeliveredLegacyUserCommentIds } from "./explicit-native-continuation.js";
+import { admitExplicitNativeContinuation, admitExplicitContinuationRetry, undeliveredLegacyUserCommentIds } from "./explicit-native-continuation.js";
 import { canRetryStoppedRun, isCancelledNativeStartup } from "./cancelled-native-startup.js";
 import { connectionIntentService } from "./connection-intents.js";
 import { managedAiSessionFingerprintConfig, prepareManagedAiRuntime, assertManagedAiProjectAuth, stripAiAuthBindings, isAiConnectionBusy, AI_AUTH_ENV_KEYS } from "./ai-connection-runtime.js";
@@ -9653,6 +9656,7 @@ export function heartbeatService(
   const recovery = recoveryService(db, {
     enqueueWakeup,
     liveRunExecutions,
+    settleExplicitContinuationRetry: releaseIssueExecutionAndPromote,
     scheduleRecoveryRetry: async (runId) => {
       const [run] = await db
         .select()
@@ -9870,10 +9874,19 @@ export function heartbeatService(
         ));
         const agent = source ? await getAgent(source.agentId) : null;
         if (source && agent && agent.companyId === source.companyId) {
-          await scheduleBoundedRetryForRun(source, agent, effect.reviewParticipant ? {
+          const retry = await scheduleBoundedRetryForRun(source, agent, effect.reviewParticipant ? {
             retryReason: EXECUTION_REVIEW_PARTICIPANT_RECOVERY_RETRY_REASON,
             wakeReason: EXECUTION_REVIEW_PARTICIPANT_RECOVERY_WAKE_REASON,
           } : undefined);
+          const issueId = readNonEmptyString(source.contextSnapshot?.issueId);
+          if (retry.outcome !== "scheduled" && source.contextSnapshot?.explicitUserContinuation && issueId &&
+              !adapterExecutionControls.has(source.id) && !(await getExecutionBlocker(db, source.companyId, issueId))) {
+            // Cleanup has settled, so exhaustion or revoked/missing authority
+            // must not retain a terminal claim. Do not request another retry.
+            const settled = await wakeQueue.releaseIssueExecution({ companyId: source.companyId,
+              runId: source.id, now: new Date(), suppressImmediateRecovery: true });
+            await applyWakeQueuePostCommitEffects(settled.postCommitEffects);
+          }
         }
       } else if (effect.kind === "run_queued") {
         publishLiveEvent({
@@ -14357,7 +14370,9 @@ export function heartbeatService(
     presentationDecision?: RunPresentationDecision | null,
   ) {
     const contextSnapshot = parseObject(run.contextSnapshot);
-    if (readNonEmptyString(contextSnapshot.goalControlRequestId)) {
+    // The explicit receipt admitted one turn. A prose-only follow-up cannot
+    // reuse it or renew it under the separate transient-failure retry policy.
+    if (readNonEmptyString(contextSnapshot.goalControlRequestId) || contextSnapshot.explicitUserContinuation) {
       if (run.issueCommentStatus !== "not_applicable") {
         await patchRunIssueCommentStatus(run.id, {
           issueCommentStatus: "not_applicable",
@@ -15712,6 +15727,7 @@ export function heartbeatService(
             | "issue_cancelled"
             | "issue_terminal_status"
             | "issue_not_in_progress"
+            | "continuation_user_authorization_missing"
             | "issue_execution_lock_changed";
           issueId: string | null;
           details: Record<string, unknown>;
@@ -15989,6 +16005,22 @@ export function heartbeatService(
           }
         }
 
+        const scheduledRunId = randomUUID();
+        if (contextSnapshot.explicitUserContinuation) {
+          const continuation = issueId && retryReason === "transient_failure" ? await admitExplicitContinuationRetry({
+            db: tx as unknown as Db, companyId: run.companyId, issueId, agentId: run.agentId,
+            parentRunId: run.id, successorRunId: scheduledRunId, now,
+          }) : null;
+          if (!continuation) return {
+            outcome: "not_scheduled", issueId,
+            errorCode: "continuation_user_authorization_missing",
+            reason: "The automatic retry could not revalidate the original user continuation.",
+            details: {},
+          };
+          retryContextSnapshot.explicitUserContinuation = continuation;
+          retryContextSnapshot.previousRunId = continuation.previousRunId;
+        }
+
         const wakeupRequest = await tx
           .insert(agentWakeupRequests)
           .values({
@@ -16039,6 +16071,7 @@ export function heartbeatService(
         const scheduledRun = await tx
           .insert(heartbeatRuns)
           .values({
+            id: scheduledRunId,
             companyId: run.companyId,
             agentId: run.agentId,
             invocationSource: "automation",
@@ -21775,7 +21808,10 @@ export function heartbeatService(
       const connectorDelivery = await prepareConnectorSkillDelivery(connectorSkillConfig, agent.adapterType);
       // Always replace this runtime-only field; caller wake data cannot supply skills.
       context.paperclipWake = { ...parseObject(context.paperclipWake), connectorSkillInstructions: connectorDelivery.instructions };
-      let runtimeConfig: Record<string, unknown> = connectorDelivery.config;
+      let runtimeConfig = await prepareConnectionInstructionDelivery({
+        resolve: () => resolveAssignedConnectionInstructionsForRun(db, { companyId: agent.companyId, agentId: agent.id, runId: run.id }),
+        context, config: connectorDelivery.config, native: agent.adapterType === "paperclip_runner",
+      });
       const resolvedFailureSecrets = readFailureReportSecrets();
       readFailureReportSecrets = () => [
         ...resolvedFailureSecrets,
@@ -26783,6 +26819,15 @@ export function heartbeatService(
       }
       // Terminalization precedes lease and adapter cleanup. Only now is the
       // owner gone; retry pending input for ordinary completions as well as Stop.
+      if (latestRun?.runtimeMode === "legacy" && ["failed", "timed_out"].includes(latestRun.status) &&
+          latestRun.contextSnapshot?.explicitUserContinuation) {
+        // Re-run the same queue-first recovery decision after cleanup. Its
+        // earlier retry request could not authorize work while this executor
+        // still held its controller or environment lease.
+        await releaseIssueExecutionAndPromote(latestRun).catch(err => {
+          logger.error({ err, runId: run.id }, "failed to settle explicit continuation after cleanup");
+        });
+      }
       if (latestRun?.runtimeMode === "legacy" && isHeartbeatRunTerminalStatus(latestRun.status)) {
         const [pending] = await db.select({ id: agentWakeupRequests.id, payload: agentWakeupRequests.payload }).from(agentWakeupRequests).where(and(
           eq(agentWakeupRequests.companyId, run.companyId), eq(agentWakeupRequests.agentId, run.agentId),
@@ -30004,37 +30049,39 @@ export function heartbeatService(
     ) => {
       const safeForLegacyEncoding = await hasUnsafeTextProjectionDatabase();
       const summary = options.summary === true;
-      const query = db
-        .select(
-          summary
-            ? {
-                ...heartbeatRunSummaryListColumns,
-                ...heartbeatRunListContextColumns,
-              }
-            : safeForLegacyEncoding
+      const rows = await retryIdempotentDatabaseOperation(async () => {
+        const query = db
+          .select(
+            summary
               ? {
-                  ...heartbeatRunListColumns,
-                  error: sql<string | null>`NULL`.as("error"),
+                  ...heartbeatRunSummaryListColumns,
                   ...heartbeatRunListContextColumns,
                 }
-              : {
-                  ...heartbeatRunListColumns,
-                  ...heartbeatRunListContextColumns,
-                  ...heartbeatRunListResultColumns,
-                },
-        )
-        .from(heartbeatRuns)
-        .where(
-          agentId
-            ? and(
-                eq(heartbeatRuns.companyId, companyId),
-                eq(heartbeatRuns.agentId, agentId),
-              )
-            : eq(heartbeatRuns.companyId, companyId),
-        )
-        .orderBy(desc(heartbeatRuns.createdAt));
+              : safeForLegacyEncoding
+                ? {
+                    ...heartbeatRunListColumns,
+                    error: sql<string | null>`NULL`.as("error"),
+                    ...heartbeatRunListContextColumns,
+                  }
+                : {
+                    ...heartbeatRunListColumns,
+                    ...heartbeatRunListContextColumns,
+                    ...heartbeatRunListResultColumns,
+                  },
+          )
+          .from(heartbeatRuns)
+          .where(
+            agentId
+              ? and(
+                  eq(heartbeatRuns.companyId, companyId),
+                  eq(heartbeatRuns.agentId, agentId),
+                )
+              : eq(heartbeatRuns.companyId, companyId),
+          )
+          .orderBy(desc(heartbeatRuns.createdAt));
 
-      const rows = limit ? await query.limit(limit) : await query;
+        return limit ? await query.limit(limit) : await query;
+      });
       return rows.map((row) => {
         const {
           contextIssueId,

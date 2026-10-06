@@ -519,7 +519,7 @@ const paperclipRunnerAdapter: ServerAdapterModule = {
           "opencode",
           `opencode-ai@${QUALIFIED_OPENCODE_RUNNER_VERSION}`,
         )
-      : buildNpmRuntimeCommandSpec(config, "codex", "@openai/codex@0.156.0"),
+      : buildNpmRuntimeCommandSpec(config, "codex", "@openai/codex@0.160.0"),
   agentConfigurationDoc:
     "# Paperclip Runner\n\nAdapter: paperclip_runner\n\nRuns Codex, OpenCode, Claude Managed, AWS AgentCore, or ACPX Claude/Grok Build/Cursor through the Rust Paperclip runner and authenticated PRP transport. GitHub Copilot and Pi are awaiting local and Daytona qualification and are not enabled for production runs. Managed providers use company-scoped qualified profiles, explicit retention acknowledgement, and spend limits.\n",
   getConfigSchema: () => ({
