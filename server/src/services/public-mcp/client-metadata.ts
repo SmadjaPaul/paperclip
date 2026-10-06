@@ -22,7 +22,12 @@ const metadataSchema = z.object({
   application_type: z.enum(["native", "web"]).optional(),
   redirect_uris: z.array(z.string().max(2048).refine(validMcpRedirect)).max(10),
   token_endpoint_auth_method: z.literal("none").default("none"),
-  grant_types: z.array(z.enum(["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"])).default(["authorization_code"]),
+  // CIMD describes a client's capabilities across authorization servers. An
+  // extra capability (Claude web publishes jwt-bearer) must not disable PKCE.
+  // Retain only grants this server implements; token dispatch still rejects others.
+  grant_types: z.array(z.string().min(1).max(2048)).max(20).default(["authorization_code"])
+    .transform(grants => [...new Set(grants)].filter(grant =>
+      ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"].includes(grant))),
   response_types: z.array(z.literal("code")).default(["code"]),
 });
 type Metadata = z.infer<typeof metadataSchema>;

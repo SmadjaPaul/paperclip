@@ -72,3 +72,34 @@ no access. Keep the existing experimental setting and simplified consent UI.
 - Replaced PID-file refresh locks with crash-released SQLite OS locks; replacement credentials are saved before the previous grant is revoked. A failed cleanup is reported without discarding the working replacement.
 - Added device-code correction without leaving the consent flow.
 - Initial paid invitation matrix: 15/15 passes across Mini, Haiku, and Sonnet; one earlier database startup failure remains recorded. Final source-pinned qualification follows review fixes. Actual OpenCode reused the existing disposable organization's grant and retrieved its saved report in a new conversation.
+
+### Qualification and staging evidence
+
+- Commit `633a4a2a2` passed every GitHub CI gate and received a 5/5 review.
+  Cloud `06c283a0` likewise passed its checks/review and was deployed to staging.
+- Source-pinned campaign `local-2026-10-06T02-15-50-324Z`: 14/15 passed.
+  All Haiku and Sonnet cases passed. Mini’s unsupported-host response correctly
+  refused setup; the text checker rejected its curly apostrophe. Preserve the
+  failed attempt, normalize presentation punctuation, and run fresh qualification.
+- A real Claude web connector discovered Butter and selected CIMD. Its metadata
+  also advertises JWT-bearer; the previous strict enum rejected the entire
+  document. Select only implemented grants and prove unsupported token grants
+  remain rejected. Codex 0.153.4 and Claude Code 2.1.245 already reached local
+  consent through CIMD. Their new grants await human approval.
+- Butter serves public setup Markdown without cookies and returns protocol
+  validation (not a tenant-session error) for anonymous device initiation.
+  Existing local OpenCode retrieved a stored report in a later conversation.
+  The new Butter OpenCode 1.18.17 session starts with no MCP configuration.
+- Clipboard transfer is verified: making the embedded browser visible resolved
+  its background clipboard mismatch. The exact copied invitation was pasted into
+  the fresh OpenCode conversation. Added an explicit clipboard-fixture Storybook
+  interaction; the real browser proof remains separate.
+- Final narrow checks: 63 authentication/metadata tests and 120 eval calibration
+  tests passed; server/UI/eval typechecks and token gates passed.
+- Local full-suite limitations remain recorded: the large Git streaming test
+  times out on this Mac; parallel CLI/route runs hit database hook timeouts.
+  The earlier long run also loaded old modules during ongoing source edits;
+  all 62 affected MCP checks passed in a fresh process. CI passed these groups.
+- Live Butter delegation/result retrieval and newly authorized Codex, Claude
+  Code, device CLI and browser-connector calls remain unverified until consent.
+  The screenshots distinguish those boundaries from local reuse and fixtures.

@@ -161,7 +161,11 @@ Client ID Metadata Documents (CIMD) and dynamic registration both support public
 clients. CIMD uses an HTTPS client ID URL with an exact matching `client_id`,
 required registered redirects, a 32 KiB response limit, a bounded cache, and
 guarded DNS/HTTP fetching that rejects private networks and redirects. Supplied
-names are not proof of a brand identity. Authorization responses include `iss`.
+names are not proof of a brand identity. Client documents can list capabilities
+used with other servers; Paperclip retains only its implemented grants. Extra
+capabilities such as Claude web’s JWT-bearer grant do not enable that grant here.
+Verified native loopback callbacks may vary only their port; the exact authorized
+callback remains bound to code redemption. Authorization responses include `iss`.
 Resource metadata advertises resource scopes; refresh capability is advertised
 in authorization-server metadata.
 

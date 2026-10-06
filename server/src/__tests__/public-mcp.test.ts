@@ -118,13 +118,16 @@ describe.skipIf(!support.supported)("public MCP OAuth and tool boundary", () => 
   it("accepts verified CIMD public clients without dynamic registration", async () => {
     const f = await fixture();
     const clientId = "https://client.example/public-mcp.json";
-    const cimd = createPublicMcpOAuth(db, config, { metadataFetch: async () => new Response(JSON.stringify({ client_id: clientId, client_name: "CIMD client", redirect_uris: [redirectUri] }), { headers: { "content-type": "application/json" } }) });
+    const cimd = createPublicMcpOAuth(db, config, { metadataFetch: async () => new Response(JSON.stringify({ client_id: clientId, client_name: "CIMD client", redirect_uris: [redirectUri], grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"] }), { headers: { "content-type": "application/json" } }) });
     const id = (await cimd.authorize({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", resource: config.resource, code_challenge: challenge, code_challenge_method: "S256" })).split("/").at(-1)!;
     expect((await cimd.describeRequest(id, f.actor, null)).clientOrigin).toBe("https://client.example");
     const consent = await cimd.consent(id, f.actor, { decision: "approve", companyId: f.company.id, allowWrites: false });
     expect(new URL(consent.redirectUrl).searchParams.get("iss")).toBe(config.origin);
     const tokens = await cimd.token({ grant_type: "authorization_code", client_id: clientId, redirect_uri: redirectUri, resource: config.resource, code: new URL(consent.redirectUrl).searchParams.get("code"), code_verifier: verifier });
     expect((await cimd.authenticate(tokens.access_token)).grant.companyId).toBe(f.company.id);
+    const [registered] = await db.select().from(mcpOauthClients).where(eq(mcpOauthClients.id, clientId));
+    expect(registered!.grantTypes).toEqual(["authorization_code", "refresh_token"]);
+    await expect(cimd.token({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", client_id: clientId, resource: config.resource })).rejects.toMatchObject({ code: "unsupported_grant_type" });
   });
 
   it("admits CIMD clients atomically under durable source quotas and cleans stale registrations", async () => {

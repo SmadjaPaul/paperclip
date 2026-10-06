@@ -26,6 +26,13 @@ describe("public MCP client metadata", () => {
     await resolve(id); expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0]?.[0]).toEqual(new URL(id));
   });
+  it("selects implemented grants from a client's broader published capabilities", async () => {
+    const metadata = { ...document, redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
+      grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"] };
+    expect((await createClientMetadataResolver(async () => response(metadata))(id)).grant_types).toEqual(["authorization_code", "refresh_token"]);
+    expect((await createClientMetadataResolver(async () => response({ ...metadata, grant_types: ["client_credentials"] }))(id)).grant_types).toEqual([]);
+    await expect(createClientMetadataResolver(async () => response({ ...metadata, grant_types: [null] }))(id)).rejects.toThrow();
+  });
   it("recognizes older loopback-only native metadata without widening declared web clients", async () => {
     expect((await createClientMetadataResolver(async () => response(document))(id)).application_type).toBe("native");
     expect((await createClientMetadataResolver(async () => response({ ...document, application_type: "web" }))(id)).application_type).toBe("web");

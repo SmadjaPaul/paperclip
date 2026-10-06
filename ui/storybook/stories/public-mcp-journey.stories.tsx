@@ -56,4 +56,12 @@ export const NavigationCheck: Story = { play: async ({ canvasElement }) => {
   await expect(c.getByText(/No assistants connected/)).toBeVisible();
 } };
 
+/** userEvent provides a clipboard fixture; this story does not write system credentials. */
+export const InvitationCopied: Story = { ...OpenCodeSetup, play: async ({ canvasElement }) => {
+  const c = within(canvasElement);
+  const user = userEvent.setup({ document: canvasElement.ownerDocument });
+  await user.click(await c.findByRole("button", { name: "Copy invitation" }));
+  await expect(await c.findByText("Invitation copied")).toBeVisible();
+  await expect(await navigator.clipboard.readText()).toContain("/mcp/setup?company=");
+} };
 export const ManualSetup: Story = { ...OpenCodeSetup, play: async ({ canvasElement }) => { await userEvent.click(await within(canvasElement).findByText("Set up manually")); } };
