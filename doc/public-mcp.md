@@ -63,6 +63,12 @@ and use a distinct server name when another Paperclip instance is already presen
 For OpenCode, merge the displayed `mcp.paperclip` entry into your project’s
 `opencode.json`, run `opencode mcp auth paperclip` there, approve the organization,
 then start `opencode web`. Restart an already-running OpenCode after authentication.
+An assistant invoking authorization through a shell tool must keep the command
+alive in a persistent terminal or background process and share its approval URL
+immediately. OpenCode's callback deadline still applies: a URL from a timed-out
+command cannot complete sign-in. Start a fresh request, or have the user run the
+command in their own terminal if the host cannot preserve it across turns.
+
 Never add upstream model keys to the MCP URL or config; the assistant’s model
 connection is configured separately.
 

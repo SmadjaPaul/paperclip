@@ -103,3 +103,18 @@ no access. Keep the existing experimental setting and simplified consent UI.
 - Live Butter delegation/result retrieval and newly authorized Codex, Claude
   Code, device CLI and browser-connector calls remain unverified until consent.
   The screenshots distinguish those boundaries from local reuse and fixtures.
+
+### Final matrix and live authorization handoff
+
+- Source-pinned campaign `local-2026-10-06T02-41-14-462Z` at `2992ef271`
+  passed 15/15: five cases each on GPT-5.4 Mini, Claude Haiku and Sonnet.
+  All CI gates and the 5/5 review passed on that source.
+- The actual Butter OpenCode cold start configured MCP and reached consent.
+  Its assistant shell then timed out before approval; a detached retry remained
+  subject to the client's own callback deadline. Added shared setup guidance
+  for immediate URL handoff, persistent authorization commands, expired-link
+  recovery and a manual-terminal fallback. Rerun cold start on all three models
+  for this instruction change; retain the preceding matrix as separate evidence.
+- The screenshot gallery starts at Butter's dashboard and records configuration,
+  pending consent and this timeout finding. New persistent grants still await
+  human confirmation; do not describe the real Butter journey as complete.
