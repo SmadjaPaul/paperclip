@@ -62,13 +62,13 @@ it("refuses remote native execution before touching API when bootstrap or cleanu
 });
 
 it("requires the exact passive accepted-plan disposition without mode promotion or extra work", () => {
-  const state = { issue: { id: "issue", status: "in_progress" }, interactions: [{ status: "answered" }], runs: [{ id: "run", nativeIssueId: "issue", runtimeMode: "native", status: "succeeded", runnerProfileJson: { nativeExecutionInput: { provider: { cursorMode: "plan" } } }, resultJson: { finalizationPhase: "committed", finalizationReasonCode: "native_plan_accepted_waiting_for_continuation", authoritativeDecision: "in_progress" } }] };
+  const state = { issue: { id: "issue", status: "in_progress" }, interactions: [{ status: "answered" }], runs: [{ id: "run", nativeIssueId: "issue", runtimeMode: "native", status: "succeeded", runnerProfileJson: { nativeExecutionInput: { provider: { mode: "plan" } } }, resultJson: { finalizationPhase: "committed", finalizationReasonCode: "native_plan_accepted_waiting_for_continuation", authoritativeDecision: "in_progress" } }] };
   expect(hasCursorAcceptedPlanWait(state)).toBe(true);
   const mutations = [
     (s: typeof state) => { s.issue.status = "done"; },
     (s: typeof state) => { s.runs[0]!.status = "failed"; },
     (s: typeof state) => { s.runs[0]!.nativeIssueId = "foreign"; },
-    (s: typeof state) => { s.runs[0]!.runnerProfileJson.nativeExecutionInput.provider.cursorMode = "agent"; },
+    (s: typeof state) => { s.runs[0]!.runnerProfileJson.nativeExecutionInput.provider.mode = "agent"; },
     (s: typeof state) => { s.runs[0]!.resultJson.finalizationReasonCode = "live_continuation_registered"; },
     (s: typeof state) => { s.runs[0]!.resultJson.finalizationPhase = "pending"; },
     (s: typeof state) => { s.runs.push(structuredClone(s.runs[0]!)); },
