@@ -10,8 +10,15 @@ export async function createTaskThroughUi(input: {
   projectName?: string;
   requireExplicitTitle?: boolean;
 }) {
-  const issuesUrl = `/${encodeURIComponent(input.issuePrefix)}/issues`;
-  const newTask = input.page.getByRole("button", { name: "New Task" }).first();
+  // Search's public creation action exposes the explicit title field. Strict
+  // native-operation fixtures use it so automatic task naming is not an extra
+  // provider mutation before the operation whose permission is under test.
+  const issuesUrl = input.requireExplicitTitle
+    ? `/${encodeURIComponent(input.issuePrefix)}/search?scope=issues&q=${encodeURIComponent(`"${input.title}"`)}`
+    : `/${encodeURIComponent(input.issuePrefix)}/issues`;
+  const newTask = input.requireExplicitTitle
+    ? input.page.getByRole("button", { name: "Create task from this query", exact: true })
+    : input.page.getByRole("button", { name: "New Task" }).first();
   let bootstrapError: unknown;
   for (let bootstrapAttempt = 1; bootstrapAttempt <= 3; bootstrapAttempt += 1) {
     try {
@@ -66,10 +73,14 @@ export async function createTaskThroughUi(input: {
     dialog.getByRole("button", { name: "Create task", exact: true }).click(),
   ]);
   expect(response.status()).toBe(201);
-  const issue = await response.json() as { id: string; companyId: string };
+  const issue = await response.json() as { id: string; companyId: string; title: string; titleNeedsGeneration: boolean };
   expect(new URL(response.url()).pathname).toBe(`/api/companies/${issue.companyId}/issues`);
   expect(issue.id).toEqual(expect.any(String));
   expect(issue.id.length).toBeGreaterThan(0);
+  if (input.requireExplicitTitle) {
+    expect(issue.title).toBe(input.title);
+    expect(issue.titleNeedsGeneration).toBe(false);
+  }
   return { submittedAtMs, issueId: issue.id };
 }
 

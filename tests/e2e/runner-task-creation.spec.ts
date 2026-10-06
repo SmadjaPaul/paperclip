@@ -34,6 +34,12 @@ for (const workMode of ["standard", "planning", "ask"] as const) {
       expect(createdIds.has(created.issueId)).toBe(false);
       createdIds.add(created.issueId);
     }
+    const title = `Explicit native fixture ${randomUUID()}`;
+    const explicit = await createTaskThroughUi({ page, issuePrefix: company.issuePrefix, agentName: agent.name,
+      title, prompt: "Keep the supplied title and exact prompt.", workMode, projectName: project.name, requireExplicitTitle: true });
+    const explicitIssue = await (await request.get(`/api/issues/${explicit.issueId}`)).json();
+    expect(explicitIssue).toMatchObject({ title, titleNeedsGeneration: false, projectId: project.id,
+      assigneeAgentId: agent.id, description: "Keep the supplied title and exact prompt.", workMode });
     expect(await (await request.get(`/api/companies/${company.id}/heartbeat-runs`)).json()).toEqual([]);
   });
 }

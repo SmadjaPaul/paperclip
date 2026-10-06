@@ -263,7 +263,7 @@ export async function runCursorNativeFlow(input: {
   let expectedMarker = execution.task.buildVisibleMarker(nonce);
   try {
     if (!remote && design.id === "native-write-deny-reconnect") await sampleDenied("before-request");
-    const createdTask = await createTaskThroughUi({ page, issuePrefix: fixtures.company.issuePrefix!, agentName: fixtures.agent.name, title: execution.task.buildTitle(nonce), prompt: remote ? input.remoteBootstrap!.prompt(nonce) : execution.task.buildPrompt(nonce) + (watch ? `\nExact native shell command (copy verbatim):\n${deniedCommand!.command}` : ""), workMode: "standard", projectName: project.name });
+    const createdTask = await createTaskThroughUi({ page, issuePrefix: fixtures.company.issuePrefix!, agentName: fixtures.agent.name, title: execution.task.buildTitle(nonce), prompt: remote ? input.remoteBootstrap!.prompt(nonce) : execution.task.buildPrompt(nonce) + (watch ? `\nExact native shell command (copy verbatim):\n${deniedCommand!.command}` : ""), workMode: "standard", projectName: project.name, requireExplicitTitle: design.id === "native-write-deny-reconnect" });
     issue = await pollUntil({ label: "browser-created Cursor task", deadlineAt: input.deadlineAt, load: async () => (await api.get<Row[]>(`/api/companies/${fixtures.company.id}/issues?limit=100`)).find(row => row.id === createdTask.issueId), accept: Boolean }) ?? {};
     if (!issue.id) throw new Error("Browser-created Cursor task is absent");
     if (remote) {

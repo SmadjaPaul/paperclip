@@ -1633,8 +1633,12 @@ The shared task-creation helper uses the current prompt-only composer and binds
 each task to its actual HTTP creation response ID, since its generated title may
 change during execution. The provider-free `tests/e2e/runner-task-creation.spec.ts`
 regression verifies assignee, project, and all three work modes with paused agents.
-Explicit title-preservation cases still require a visible title input and fail
-before provider execution when that surface is unavailable.
+Explicit title-preservation and strict native permission cases use Search’s
+“Create task from this query” action to expose the normal title field, and verify
+that the creation response preserves it with `titleNeedsGeneration: false`.
+This keeps automatic title naming from introducing an unrelated permission
+request before the tested native write. Permission policy, provider prompts,
+command correlation, and no-effect assertions remain unchanged.
 
 Set `PAPERCLIP_RUNNER_E2E_INSTALLED_CLI` to the absolute public consumer's
 `paperclipai/dist/index.js` for an installed-product acceptance run. Install the

@@ -104,7 +104,7 @@ export async function runNativeProviderLossFlow(input: {
     await api.patch(`/api/agents/${fixtures.agent.id}`, { adapterConfig: { ...agent.adapterConfig, acpxPermissionMode: "approve-reads", acpxSessionMode: "agent", timeoutSec: 120, lifecycleMode: "per_turn" } });
     const project = await api.post<Row>(`/api/companies/${fixtures.company.id}/projects`, { name: `Native provider loss ${nonce}`, executionWorkspacePolicy: { enabled: true, defaultMode: "shared_workspace", sharedWorkspaceConcurrency: "serialize", allowIssueOverride: false, environmentId: fixtures.environment.id, workspaceStrategy: { type: "project_primary" } }, workspace: { name: "Primary", sourceType: "local_path", cwd: input.workspacePath, isPrimary: true } });
     if (!remote) await sample("before-request");
-    const createdTask = await createTaskThroughUi({ page, issuePrefix: fixtures.company.issuePrefix!, agentName: fixtures.agent.name, title: execution.task.buildTitle(nonce), prompt: remote ? input.remoteBootstrap!.prompt(nonce) : prompt(), workMode: "standard", projectName: project.name });
+    const createdTask = await createTaskThroughUi({ page, issuePrefix: fixtures.company.issuePrefix!, agentName: fixtures.agent.name, title: execution.task.buildTitle(nonce), prompt: remote ? input.remoteBootstrap!.prompt(nonce) : prompt(), workMode: "standard", projectName: project.name, requireExplicitTitle: true });
     issue = (await pollUntil({ label: "browser-created provider-loss task", deadlineAt: input.deadlineAt,
       load: async () => (await api.get<Row[]>(`/api/companies/${fixtures.company.id}/issues?limit=100`)).find(row => row.id === createdTask.issueId), accept: Boolean }))!;
     if (remote) {
