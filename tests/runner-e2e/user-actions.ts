@@ -52,7 +52,8 @@ export async function createTaskThroughUi(input: {
   await input.page.getByRole("option").filter({ has: input.page.getByText(input.agentName, { exact: true }) }).click();
   await expect(input.page.getByRole("searchbox", { name: "Search assignees", exact: true })).toBeHidden();
   if (input.projectName) {
-    await dialog.getByRole("button", { name: "Project", exact: true }).click();
+    // The selector remembers the previous project, so its visible label changes.
+    await dialog.locator('button[data-slot="new-issue-compact-control"]').click();
     await input.page.getByPlaceholder("Search projects...").fill(input.projectName);
     await input.page.getByText(input.projectName, { exact: true }).last().click();
   }

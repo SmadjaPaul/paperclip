@@ -17,14 +17,23 @@ for (const workMode of ["standard", "planning", "ask"] as const) {
     const projectResponse = await request.post(`/api/companies/${company.id}/projects`, { data: { name: "Composer project" } });
     expect(projectResponse.ok()).toBe(true);
     const project = await projectResponse.json();
-    const prompt = `Preserve this exact prompt for ${workMode}.`;
-    const created = await createTaskThroughUi({ page, issuePrefix: company.issuePrefix, agentName: agent.name,
-      title: "Fixture label distinct from the generated title", prompt, workMode, projectName: project.name });
-    const issue = await (await request.get(`/api/issues/${created.issueId}`)).json();
-    expect(issue).toMatchObject({ id: created.issueId, companyId: company.id, assigneeAgentId: agent.id,
-      projectId: project.id, description: prompt, workMode });
-    expect(issue.title).not.toBe("Fixture label distinct from the generated title");
-    expect(created.submittedAtMs).toBeGreaterThan(0);
+    const nextProjectResponse = await request.post(`/api/companies/${company.id}/projects`, { data: { name: "Next composer project" } });
+    expect(nextProjectResponse.ok()).toBe(true);
+    const nextProject = await nextProjectResponse.json();
+    const createdIds = new Set<string>();
+    // Reopen with a remembered project, then change that remembered selection.
+    for (const selectedProject of [project, project, nextProject]) {
+      const prompt = `Preserve this exact prompt for ${workMode} task ${createdIds.size + 1}.`;
+      const created = await createTaskThroughUi({ page, issuePrefix: company.issuePrefix, agentName: agent.name,
+        title: "Fixture label distinct from the generated title", prompt, workMode, projectName: selectedProject.name });
+      const issue = await (await request.get(`/api/issues/${created.issueId}`)).json();
+      expect(issue).toMatchObject({ id: created.issueId, companyId: company.id, assigneeAgentId: agent.id,
+        projectId: selectedProject.id, description: prompt, workMode });
+      expect(issue.title).not.toBe("Fixture label distinct from the generated title");
+      expect(created.submittedAtMs).toBeGreaterThan(0);
+      expect(createdIds.has(created.issueId)).toBe(false);
+      createdIds.add(created.issueId);
+    }
     expect(await (await request.get(`/api/companies/${company.id}/heartbeat-runs`)).json()).toEqual([]);
   });
 }
