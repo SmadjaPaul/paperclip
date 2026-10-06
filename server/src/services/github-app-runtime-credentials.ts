@@ -109,4 +109,3 @@ export function applyDirectGitHubAppRuntimeToken(
   next.GITHUB_TOKEN = runtime.token;
   return next;
 }
-

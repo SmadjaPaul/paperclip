@@ -56,4 +56,3 @@ describe("direct GitHub App runtime credentials", () => {
     await expect(mintDirectGitHubAppToken({ env: { GITHUB_APP_ID: "5199792" } })).rejects.toThrow("incomplete");
   });
 });
-
