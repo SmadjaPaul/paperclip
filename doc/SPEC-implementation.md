@@ -592,7 +592,7 @@ conversation lifecycles, and protection against replaying superseded requests.
 | Action | Board | Agent |
 |---|---|---|
 | Create company | yes | no |
-| Hire/create agent | yes (direct) | request via approval |
+| Hire/create agent | yes (direct) | new standard agents: direct via `canCreateAgents`; low-trust policy or approval gates can restrict |
 | Pause/resume agent | yes | pause: no; resume: direct `agents:configure` grant only |
 | Create/update task | yes | yes |
 | Force reassign task | yes | limited |
@@ -610,6 +610,14 @@ agent actor calling `POST /agents/:agentId/resume` must pass the protected
 access does not bypass that decision, and `agents:suggest-changes` alone cannot
 apply the lifecycle change. Pause, clear-error, terminate, approval, and
 key-management routes remain board-only.
+
+An ordinary standard agent receives a direct `agents:configure` grant on
+creation. Existing agents keep their current permissions; no backfill runs.
+Low-trust and managed built-in agents do not receive this default. See
+[agent permission defaults](agent-permission-defaults.md) for the full inventory.
+Agent-authenticated changes cannot set or restore host-executed process adapter
+configuration, including commands and environment values. Agent-authenticated
+rollbacks cannot restore host-executed workspace commands either.
 
 ### 9.3.1 Shared default-open issue writes
 
@@ -1906,6 +1914,14 @@ unavailable. Preserve current ownership and newer-work fences. See
   endpoints delegate to sources while retaining response shapes.
 - GitHub.com, manual refresh only. No upstream editing, polling, webhook sync, commits,
   or pull-request creation in this milestone.
+
+### Experimental AI connection routing
+
+Opt-in plugin routers may represent a pool as an AI runtime binding. Core keeps
+company and credential authorization, atomically records task/agent affinity and
+a pool cursor, and persists concrete native recovery evidence. The full contract
+is in [AI-CONNECTION-ROUTERS.md](connections/AI-CONNECTION-ROUTERS.md). Disabled
+routing cannot allocate new tasks; already admitted native runs remain recoverable.
 
 ### Connection instructions
 

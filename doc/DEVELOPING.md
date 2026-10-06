@@ -460,6 +460,11 @@ npx paperclipai allowed-hostname dotta-macbook-pro
 
 ## Test Commands
 
+The [feature map](../feature-map/README.md) is an optional reference for user
+entry points, targeted tests, manual verification recipes, and coverage gaps.
+Its page inventory is a source snapshot. The documented journeys have separate
+verification steps and do not run automatically from the map.
+
 Use the cheap local default unless you are specifically working on browser flows:
 
 ```sh
@@ -1202,6 +1207,11 @@ lookups, and `/new` preserving chat history. Hiring additionally requires the
 operator-controlled [runner API tools](runner-api-tools.md) rollout; enabling
 Agent Chat does not enable that API surface. Failed-turn retries restore the
 selected run's user comments so the agent can answer the original request.
+
+An unsaved Agent Chat uses an ephemeral `chat:<agent-id>` view-model ID. Task
+browser polling starts after the first send or upload creates a persisted task
+UUID. Saved chats retain the task browser's company and credential access checks.
+Task browser routes reject malformed task IDs with `404` before querying PostgreSQL.
 
 A native continuation that requires reconciliation shows **Recovery needed**
 with **Inspect run**; inspect the original outcome before resolving its recovery
