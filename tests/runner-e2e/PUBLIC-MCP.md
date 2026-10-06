@@ -173,3 +173,12 @@ wrong results. No private-address exemption is added to production delivery.
 pnpm test:e2e:runner -- --id public-mcp.assistant-codex-mini.local.event-follow-up
 pnpm test:e2e:runner -- --suite public-mcp --case event-follow-up --max-parallel 1
 ```
+
+The invitation cold-start case uses a normal chat handoff: the model must present
+the exact verification link, the fixture human approves in the real browser, and
+a separate user turn resumes the task. Other setup-capable cases also support
+this path when the model presents the link instead of calling the host's approval
+UI tool. Browser decisions are recorded as explicit host events between turns,
+never fabricated as model tool calls. Missing approval or delegation fails early.
+Grader v11 calibrates both handoff mechanisms and rejects early work, missing
+independent grants, refusal bypass, and reordered approval evidence.
