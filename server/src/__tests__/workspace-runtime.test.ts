@@ -39,6 +39,7 @@ import {
   normalizeAdapterManagedRuntimeServices,
   reconcilePersistedRuntimeServicesOnStartup,
   realizeExecutionWorkspace,
+  WorkspaceRuntimeValidationFailure,
   refreshRemoteTrackingBaseRef,
   releaseRuntimeServicesForRun,
   UnresolvedWorkspaceBaseRefError,
@@ -873,6 +874,155 @@ describe("realizeExecutionWorkspace", () => {
     expect(second.cwd).toBe(first.cwd);
     expect(second.branchName).toBe(first.branchName);
   });
+
+  it("creates distinct worktrees and branches for concurrent issues in one project", async () => {
+    const repoRoot = await createTempRepo();
+    const base = {
+      baseCwd: repoRoot,
+      source: "project_primary" as const,
+      projectId: "project-shared",
+      workspaceId: "workspace-primary",
+      repoUrl: null,
+      repoRef: "HEAD",
+    };
+    const config = {
+      workspaceStrategy: {
+        type: "git_worktree" as const,
+        branchTemplate: "{{issue.identifier}}-{{slug}}",
+      },
+    };
+
+    const [first, second] = await Promise.all([
+      realizeExecutionWorkspace({
+        base,
+        config,
+        issue: { id: "issue-a", identifier: "PAP-701", title: "First concurrent task" },
+        agent: { id: "agent-1", name: "Coder", companyId: "company-1" },
+      }),
+      realizeExecutionWorkspace({
+        base,
+        config,
+        issue: { id: "issue-b", identifier: "PAP-702", title: "Second concurrent task" },
+        agent: { id: "agent-1", name: "Coder", companyId: "company-1" },
+      }),
+    ]);
+
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(true);
+    expect(first.branchName).toBe("PAP-701-first-concurrent-task");
+    expect(second.branchName).toBe("PAP-702-second-concurrent-task");
+    expect(first.branchName).not.toBe(second.branchName);
+    expect(first.cwd).not.toBe(second.cwd);
+    await expect(fs.stat(first.cwd)).resolves.toBeTruthy();
+    await expect(fs.stat(second.cwd)).resolves.toBeTruthy();
+  }, 15_000);
+
+  it("returns a structured materializer failure without falling back to project_primary", async () => {
+    const repoRoot = await createTempRepo();
+    const branchTemplate = "{{issue.identifier}}-{{slug}}";
+
+    await expect(realizeExecutionWorkspace({
+      base: {
+        baseCwd: repoRoot,
+        source: "project_primary",
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+        repoUrl: null,
+        repoRef: "HEAD",
+      },
+      config: {
+        workspaceStrategy: {
+          type: "git_worktree",
+          branchTemplate,
+          provisionCommand: "printf 'materializer failed\\n' >&2; exit 23",
+        },
+      },
+      issue: { id: "issue-materializer", identifier: "PAP-703", title: "Materializer failure" },
+      agent: { id: "agent-1", name: "Coder", companyId: "company-1" },
+    })).rejects.toMatchObject({
+      code: "workspace_validation_failed",
+      resultJson: {
+        workspaceValidation: expect.objectContaining({
+          reason: "workspace_provision_failed",
+          strategyType: "git_worktree",
+        }),
+      },
+    } satisfies Partial<WorkspaceRuntimeValidationFailure>);
+
+    const branchName = "PAP-703-materializer-failure";
+    await expect(fs.stat(path.join(repoRoot, ".paperclip", "worktrees", branchName))).rejects.toThrow();
+    await expect(
+      execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${branchName}`], { cwd: repoRoot }),
+    ).rejects.toThrow();
+    const fallback = await realizeExecutionWorkspace({
+      base: {
+        baseCwd: repoRoot,
+        source: "project_primary",
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+        repoUrl: null,
+        repoRef: "HEAD",
+      },
+      config: { workspaceStrategy: { type: "project_primary" } },
+      issue: { id: "issue-materializer", identifier: "PAP-703", title: "Materializer failure" },
+      agent: { id: "agent-1", name: "Coder", companyId: "company-1" },
+    });
+    expect(fallback.strategy).toBe("project_primary");
+    expect(fallback.cwd).toBe(repoRoot);
+  }, 15_000);
+
+  it("retries the same issue deterministically after cleanup without a stale branch", async () => {
+    const repoRoot = await createTempRepo();
+    const input = {
+      base: {
+        baseCwd: repoRoot,
+        source: "project_primary" as const,
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+        repoUrl: null,
+        repoRef: "HEAD",
+      },
+      config: {
+        workspaceStrategy: {
+          type: "git_worktree" as const,
+          branchTemplate: "{{issue.identifier}}-{{slug}}",
+        },
+      },
+      issue: { id: "issue-retry", identifier: "PAP-704", title: "Deterministic retry" },
+      agent: { id: "agent-1", name: "Coder", companyId: "company-1" },
+    } satisfies Parameters<typeof realizeExecutionWorkspace>[0];
+
+    const first = await realizeExecutionWorkspace(input);
+    const firstPath = first.cwd;
+    const firstBranch = first.branchName;
+    const cleanup = await cleanupExecutionWorkspaceArtifacts({
+      workspace: {
+        id: "execution-workspace-retry-1",
+        cwd: first.cwd,
+        providerType: "git_worktree",
+        providerRef: first.worktreePath,
+        branchName: first.branchName,
+        repoUrl: first.repoUrl,
+        baseRef: first.repoRef,
+        projectId: first.projectId,
+        projectWorkspaceId: first.workspaceId,
+        sourceIssueId: input.issue.id,
+        metadata: {
+          createdByRuntime: first.branchCreatedByRuntime,
+          gitBranchOwnershipVersion: 1,
+        },
+      },
+      projectWorkspace: { cwd: repoRoot, cleanupCommand: null },
+    });
+    expect(cleanup).toMatchObject({ cleaned: true, warnings: [] });
+
+    const retry = await realizeExecutionWorkspace(input);
+    expect(retry.created).toBe(true);
+    expect(retry.branchCreatedByRuntime).toBe(true);
+    expect(retry.cwd).toBe(firstPath);
+    expect(retry.branchName).toBe(firstBranch);
+    await expect(fs.stat(retry.cwd)).resolves.toBeTruthy();
+  }, 15_000);
 
   it("retains the project provision command when an issue overrides its base branch", async () => {
     const repoRoot = await createTempRepo();
