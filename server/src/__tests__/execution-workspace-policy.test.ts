@@ -220,14 +220,15 @@ describe("execution workspace policy helpers", () => {
     ).toBe(false);
   });
 
-  it("mirrors runtime default (project_primary) when pinned settings omit strategy type", () => {
-    // Mode-only pin without explicit workspaceStrategy.type → same project_primary default as runtime.
+  it("defaults isolated pinned settings to a git worktree", () => {
+    // Mode-only pin without explicit workspaceStrategy.type must not silently
+    // land in the shared project checkout.
     expect(
       resolvePinnedIssueWorkspaceStrategyType({
         mode: "isolated_workspace",
         issueSettings: { mode: "isolated_workspace" },
       }),
-    ).toBe("project_primary");
+    ).toBe("git_worktree");
     // Explicit strategy type is always respected.
     expect(
       resolvePinnedIssueWorkspaceStrategyType({
@@ -247,6 +248,19 @@ describe("execution workspace policy helpers", () => {
         },
       }),
     ).toBe("project_primary");
+  });
+
+  it("does not inherit an agent project-primary strategy for isolated mode", () => {
+    const result = buildExecutionWorkspaceAdapterConfig({
+      agentConfig: { workspaceStrategy: { type: "project_primary" } },
+      projectPolicy: null,
+      issueSettings: { mode: "isolated_workspace" },
+      mode: "isolated_workspace",
+      legacyUseProjectWorkspace: null,
+    });
+
+    expect(result.workspaceStrategy).toEqual({ type: "git_worktree" });
+    expect(resolveEffectiveWorkspaceStrategyType("isolated_workspace", result)).toBe("git_worktree");
   });
 
   it("falls back to project policy before legacy project-workspace compatibility flag", () => {
