@@ -23,10 +23,26 @@ jobs:
           ref: master
 
       - name: Dependency Review
+        # GitHub does not expose Dependency Graph to this fork repository.
+        # Keep this required gate active only in the upstream repository; do
+        # not turn an unavailable fork capability into a false failure.
+        if: github.repository == 'paperclipai/paperclip'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           base-ref: ${{ github.event.pull_request.base.sha }}
           head-ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Document unavailable fork Dependency Review
+        if: github.repository != 'paperclipai/paperclip'
+        shell: bash
+        run: |
+          {
+            echo '### Dependency Review'
+            echo
+            echo 'SKIPPED (neutral): GitHub Dependency Graph is unavailable for this fork repository.'
+            echo 'The upstream repository must keep Dependency Review enabled; this condition does not apply there.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo '::notice title=Dependency Review::Skipped neutrally because Dependency Graph is unavailable for this fork.'
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
