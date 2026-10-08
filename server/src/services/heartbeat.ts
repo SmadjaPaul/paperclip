@@ -3001,7 +3001,6 @@ export async function assertGitWorktreeBaseWorkspaceReady(input: {
     input.requestedExecutionWorkspaceMode,
     input.config,
   );
-  if (strategyType !== "git_worktree") return;
 
   const issueLabel = input.issue.identifier ?? input.issue.id;
   const remediation =
@@ -3032,6 +3031,31 @@ export async function assertGitWorktreeBaseWorkspaceReady(input: {
     });
   };
 
+  // An isolated project policy must never continue from the agent-home fallback,
+  // even when its strategy is project_primary. The fallback hides the failed
+  // materializer and silently turns an isolated run into shared execution.
+  if (
+    input.anchor &&
+    (input.requestedExecutionWorkspaceMode === "isolated_workspace" ||
+      input.requestedExecutionWorkspaceMode === "operator_branch") &&
+    ((input.anchor?.materializationFailures?.length ?? 0) > 0 ||
+      input.anchor?.baseCwdFallback) &&
+    strategyType !== "git_worktree"
+  ) {
+    fail(
+      input.anchor?.materializationFailures?.length
+        ? "isolated_workspace_materialization_failed"
+        : "isolated_workspace_base_fallback",
+      `Issue ${issueLabel} requested ${input.requestedExecutionWorkspaceMode}, but its project workspace could not be materialized; refusing to fall back to project_primary execution. Repair the project workspace and retry.`,
+      {
+        baseCwdFallback: input.anchor?.baseCwdFallback ?? false,
+        materializationFailures: input.anchor?.materializationFailures ?? [],
+      },
+    );
+  }
+
+  if (strategyType !== "git_worktree") return;
+
   if (input.base.source === "agent_home") {
     fail(
       "git_worktree_base_agent_home",
@@ -3046,12 +3070,17 @@ export async function assertGitWorktreeBaseWorkspaceReady(input: {
   // is reserved for genuine materialization failures; a fallback with no failed attempt
   // (a configured path that is simply unavailable) keeps its accurate reporting below.
   const materializationFailures = input.anchor?.materializationFailures ?? [];
-  if (input.anchor?.baseCwdFallback && materializationFailures.length > 0) {
+  if (materializationFailures.length > 0) {
     const failureDetail = `: ${materializationFailures[0].error.replace(/\s+/g, " ")}`;
     fail(
-      "git_worktree_base_materialization_failed",
+      input.anchor?.baseCwdFallback
+        ? "git_worktree_base_materialization_failed"
+        : "isolated_workspace_materialization_failed",
       `Issue ${issueLabel} requested ${input.requestedExecutionWorkspaceMode} with git_worktree, but the project workspace checkout could not be prepared${failureDetail}. Repair the project workspace repository URL, clone access, or configured local cwd, then retry.`,
-      { baseCwdFallback: true, materializationFailures },
+      {
+        baseCwdFallback: input.anchor?.baseCwdFallback ?? false,
+        materializationFailures,
+      },
     );
   }
 
@@ -21684,7 +21713,7 @@ export function heartbeatService(
           );
         }
       }
-      const useIsolatedTaskDirectory = issueRef !== null && shouldUseIsolatedTaskDirectory({
+      const useIsolatedTaskDirectory = issueRef !== null && !projectExecutionWorkspacePolicy?.enabled && shouldUseIsolatedTaskDirectory({
         trustPreset: trustPreset.kind,
         environmentDriver: selectedEnvironmentForConfig?.driver ?? null,
         mode: requestedExecutionWorkspaceMode,
@@ -22847,6 +22876,9 @@ export function heartbeatService(
       await bindIssueToPersistedExecutionWorkspace(persistedExecutionWorkspace);
       const workspaceRealization = realizationResult.workspaceRealization;
       const executionTarget = realizationResult.executionTarget;
+      // The materialized execution workspace is authoritative for adapter cwd;
+      // never let an adapter reconstruct it from the project-level config.
+      runtimeConfig = { ...runtimeConfig, cwd: executionWorkspace.cwd };
       let instructionCopy: Awaited<ReturnType<typeof instructionCopies.prepare>> = null;
       let instructionSave: Record<string, unknown> | null = null;
       const recordInstructionSave = async (saved: NonNullable<Awaited<ReturnType<typeof instructionCopies.get>>>) => {
@@ -28385,18 +28417,37 @@ export function heartbeatService(
             issue.status !== "done" &&
             issue.status !== "cancelled"
           ) {
+            const projectExecutionWorkspacePolicy = issue.projectId
+              ? await tx
+                  .select({ executionWorkspacePolicy: projects.executionWorkspacePolicy })
+                  .from(projects)
+                  .where(
+                    and(
+                      eq(projects.id, issue.projectId),
+                      eq(projects.companyId, issue.companyId),
+                    ),
+                  )
+                  .then((rows) =>
+                    gateProjectExecutionWorkspacePolicy(
+                      parseProjectExecutionWorkspacePolicy(
+                        rows[0]?.executionWorkspacePolicy,
+                      ),
+                      isolatedWorkspacesEnabled,
+                    ),
+                  )
+              : null;
             const issueSettings = parseIssueExecutionWorkspaceSettings(
               issue.executionWorkspaceSettings,
             );
             const resolvedMode = resolveExecutionWorkspaceMode({
-              projectPolicy: null,
+              projectPolicy: projectExecutionWorkspacePolicy,
               issueSettings,
               legacyUseProjectWorkspace: null,
             });
             const workspaceManagedConfig = buildExecutionWorkspaceAdapterConfig(
               {
                 agentConfig: parseObject(agent.adapterConfig),
-                projectPolicy: null,
+                projectPolicy: projectExecutionWorkspacePolicy,
                 issueSettings,
                 mode: resolvedMode,
                 legacyUseProjectWorkspace: null,
