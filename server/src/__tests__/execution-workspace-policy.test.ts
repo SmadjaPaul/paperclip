@@ -459,6 +459,26 @@ describe("execution workspace policy helpers", () => {
     expect(agentDefault.workspaceRuntime).toBeUndefined();
   });
 
+  it("permits an explicit shared/project-primary policy when isolation is disabled", () => {
+    const projectPolicy = { enabled: false, defaultMode: "shared_workspace" as const };
+    const mode = resolveExecutionWorkspaceMode({
+      projectPolicy,
+      issueSettings: null,
+      legacyUseProjectWorkspace: null,
+    });
+    const config = buildExecutionWorkspaceAdapterConfig({
+      agentConfig: {},
+      projectPolicy,
+      issueSettings: null,
+      mode,
+      legacyUseProjectWorkspace: null,
+    });
+
+    expect(mode).toBe("shared_workspace");
+    expect(resolveEffectiveWorkspaceStrategyType(mode, config)).toBe("project_primary");
+    expect(config.workspaceStrategy).toBeUndefined();
+  });
+
   it("parses persisted JSON payloads into typed project and issue workspace settings", () => {
     expect(
       parseProjectExecutionWorkspacePolicy({

@@ -3120,30 +3120,56 @@ async function provisionExecutionWorktree(input: {
   if (!provisionCommand) return;
   const resolvedProvisionCommand = resolveRepoManagedWorkspaceCommand(provisionCommand, input.repoRoot);
 
-  await recordWorkspaceCommandOperation(input.recorder, {
-    phase: "workspace_provision",
-    command: provisionCommand,
-    resolvedCommand: resolvedProvisionCommand,
-    cwd: input.worktreePath,
-    env: buildWorkspaceCommandEnv({
-      base: input.base,
-      repoRoot: input.repoRoot,
-      worktreePath: input.worktreePath,
-      branchName: input.branchName,
-      issue: input.issue,
-      agent: input.agent,
-      created: input.created,
-    }),
-    label: `Execution workspace provision command "${provisionCommand}"`,
-    metadata: {
-      repoRoot: input.repoRoot,
-      worktreePath: input.worktreePath,
-      branchName: input.branchName,
-      created: input.created,
-      resolvedCommand: resolvedProvisionCommand === provisionCommand ? null : resolvedProvisionCommand,
-    },
-    successMessage: `Provisioned workspace at ${input.worktreePath}\n`,
-  });
+  try {
+    await recordWorkspaceCommandOperation(input.recorder, {
+      phase: "workspace_provision",
+      command: provisionCommand,
+      resolvedCommand: resolvedProvisionCommand,
+      cwd: input.worktreePath,
+      env: buildWorkspaceCommandEnv({
+        base: input.base,
+        repoRoot: input.repoRoot,
+        worktreePath: input.worktreePath,
+        branchName: input.branchName,
+        issue: input.issue,
+        agent: input.agent,
+        created: input.created,
+      }),
+      label: `Execution workspace provision command "${provisionCommand}"`,
+      metadata: {
+        repoRoot: input.repoRoot,
+        worktreePath: input.worktreePath,
+        branchName: input.branchName,
+        created: input.created,
+        resolvedCommand: resolvedProvisionCommand === provisionCommand ? null : resolvedProvisionCommand,
+      },
+      successMessage: `Provisioned workspace at ${input.worktreePath}\n`,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new WorkspaceRuntimeValidationFailure(
+      `Execution workspace materializer failed for git worktree "${input.worktreePath}": ${message}`,
+      {
+        workspaceValidation: {
+          reason: "workspace_provision_failed",
+          strategyType: "git_worktree",
+          repoRoot: input.repoRoot,
+          worktreePath: input.worktreePath,
+          branchName: input.branchName,
+          provisionCommand,
+        },
+      },
+    );
+  }
+}
+
+async function cleanupFreshWorktreeAfterProvisionFailure(
+  repoRoot: string,
+  worktreePath: string,
+  branchName: string,
+) {
+  await runGit(["worktree", "remove", "--force", worktreePath], repoRoot).catch(() => undefined);
+  await runGit(["branch", "-D", branchName], repoRoot).catch(() => undefined);
 }
 
 function buildExecutionWorkspaceCleanupEnv(input: {
@@ -3604,17 +3630,24 @@ export async function realizeExecutionWorkspace(input: {
       return await reuseExistingWorktree(reusablePath);
     }
   }
-  await provisionExecutionWorktree({
-    strategy: rawStrategy,
-    base: input.base,
-    repoRoot,
-    worktreePath,
-    branchName,
-    issue: input.issue,
-    agent: input.agent,
-    created: true,
-    recorder: input.recorder ?? null,
-  });
+  try {
+    await provisionExecutionWorktree({
+      strategy: rawStrategy,
+      base: input.base,
+      repoRoot,
+      worktreePath,
+      branchName,
+      issue: input.issue,
+      agent: input.agent,
+      created: true,
+      recorder: input.recorder ?? null,
+    });
+  } catch (error) {
+    if (branchCreatedByRuntime) {
+      await cleanupFreshWorktreeAfterProvisionFailure(repoRoot, worktreePath, branchName);
+    }
+    throw error;
+  }
 
   return {
     ...input.base,
