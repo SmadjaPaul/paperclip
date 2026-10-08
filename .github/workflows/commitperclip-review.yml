@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   review:
+    if: github.repository == 'paperclipai/paperclip'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -31,18 +32,6 @@ jobs:
         with:
           base-ref: ${{ github.event.pull_request.base.sha }}
           head-ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Document unavailable fork Dependency Review
-        if: github.repository != 'paperclipai/paperclip'
-        shell: bash
-        run: |
-          {
-            echo '### Dependency Review'
-            echo
-            echo 'SKIPPED (neutral): GitHub Dependency Graph is unavailable for this fork repository.'
-            echo 'The upstream repository must keep Dependency Review enabled; this condition does not apply there.'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo '::notice title=Dependency Review::Skipped neutrally because Dependency Graph is unavailable for this fork.'
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -77,3 +66,20 @@ jobs:
         run: |
           echo "One or more quality gates failed. See commitperclip comment on the PR for details."
           exit 1
+
+  fork-review:
+    name: review (fork: neutral/skipped)
+    if: github.repository != 'paperclipai/paperclip'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Document unavailable fork security review
+        shell: bash
+        run: |
+          {
+            echo '### Commitperclip PR Review'
+            echo
+            echo 'SKIPPED (neutral): this fork cannot run upstream Dependency Review or secret-backed Commitperclip quality gates.'
+            echo 'The upstream repository keeps both security gates enabled; this fork result is not a security PASS.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo '::notice title=Commitperclip PR Review::Skipped neutrally because this fork lacks the upstream security capabilities.'
