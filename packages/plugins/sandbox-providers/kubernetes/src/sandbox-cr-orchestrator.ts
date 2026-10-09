@@ -1,6 +1,6 @@
 /**
  * SandboxOrchestrator implementation backed by the kubernetes-sigs/agent-sandbox
- * Sandbox CRD (agents.x-k8s.io/v1alpha1).
+ * Sandbox CRD (agents.x-k8s.io/v1beta1).
  *
  * The Sandbox CR creates a long-lived pod that paperclip-server can exec into
  * for multi-command adapter-install workflows — the key architectural win over
@@ -25,7 +25,7 @@ import type { KubeClients } from "./kube-client.js";
 import type { SandboxOrchestrator, SandboxStatus } from "./sandbox-orchestrator.js";
 
 const SANDBOX_GROUP = "agents.x-k8s.io";
-const SANDBOX_VERSION = "v1alpha1";
+const SANDBOX_VERSION = "v1beta1";
 const SANDBOX_PLURAL = "sandboxes";
 
 export class SandboxCrTimeoutError extends Error {
@@ -42,13 +42,54 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Map a Sandbox CR status.phase value to our SandboxStatus shape.
- * Sandbox phases: Pending | Ready | Terminating | Failed
+ * Map the v1beta1 condition-based Sandbox status to our internal shape.
+ * v1beta1 deliberately has no phase field; readiness is represented by the
+ * Ready condition and completed pods by Finished.
  */
 function mapSandboxPhase(
   cr: Record<string, unknown>,
 ): SandboxStatus {
   const status = (cr.status as Record<string, unknown>) ?? {};
+  const conditions = Array.isArray(status.conditions)
+    ? (status.conditions as Array<{ type?: string; status?: string; reason?: string; message?: string }>)
+    : [];
+  const ready = conditions.find((condition) => condition.type === "Ready");
+  const finished = conditions.find((condition) => condition.type === "Finished");
+
+  if (ready?.status === "True") {
+    return {
+      phase: "Running",
+      complete: false,
+      active: 1,
+      succeeded: 0,
+      failed: 0,
+    };
+  }
+  if (finished?.status === "True") {
+    return {
+      phase: "Succeeded",
+      complete: true,
+      active: 0,
+      succeeded: 1,
+      failed: 0,
+      reason: finished.reason,
+      message: finished.message,
+    };
+  }
+  if (ready?.status === "False" && /fail|error/i.test(`${ready.reason ?? ""} ${ready.message ?? ""}`)) {
+    return {
+      phase: "Failed",
+      complete: false,
+      active: 0,
+      succeeded: 0,
+      failed: 1,
+      reason: ready.reason,
+      message: ready.message,
+    };
+  }
+
+  // Keep the legacy phase fallback for mocked clients and older controller
+  // responses; real v1beta1 objects use conditions above.
   const phase = (status.phase as string) ?? "Pending";
 
   switch (phase) {
@@ -70,7 +111,6 @@ function mapSandboxPhase(
         reason: "Terminating",
       };
     case "Failed": {
-      const conditions = (status.conditions as { type?: string; reason?: string; message?: string }[]) ?? [];
       const failedCond = conditions.find((c) => c.type === "Failed");
       return {
         phase: "Failed",
@@ -266,8 +306,8 @@ export async function waitForSandboxReady(
     }) as Record<string, unknown>;
 
     const status = (cr.status as Record<string, unknown>) ?? {};
-    // agent-sandbox v1alpha1 uses status.conditions[type=Ready,status=True],
-    // not status.phase. Fall back to phase for forward-compat.
+    // Agent Sandbox v1beta1 uses status.conditions[type=Ready,status=True],
+    // not status.phase. Fall back to phase for older/mocked responses.
     const conditions = Array.isArray(status.conditions) ? status.conditions as Array<Record<string, unknown>> : [];
     const readyCondition = conditions.find((c) => c.type === "Ready");
     const failedCondition = conditions.find((c) => c.type === "Failed" || (c.type === "Ready" && c.status === "False" && typeof c.reason === "string" && /failed/i.test(c.reason)));

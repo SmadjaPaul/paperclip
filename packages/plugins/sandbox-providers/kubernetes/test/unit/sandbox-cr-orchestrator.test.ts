@@ -9,7 +9,7 @@ import {
 } from "../../src/sandbox-cr-orchestrator.js";
 
 const SANDBOX_GROUP = "agents.x-k8s.io";
-const SANDBOX_VERSION = "v1alpha1";
+const SANDBOX_VERSION = "v1beta1";
 const SANDBOX_PLURAL = "sandboxes";
 
 // Helpers to build mock CR objects with given phase
@@ -28,7 +28,7 @@ describe("createSandboxCr", () => {
     const create = vi.fn().mockResolvedValue({ metadata: { uid: "test-uid" } });
     const clients = { custom: { createNamespacedCustomObject: create } };
     const manifest = {
-      apiVersion: "agents.x-k8s.io/v1alpha1",
+      apiVersion: "agents.x-k8s.io/v1beta1",
       kind: "Sandbox",
       metadata: { name: "pc-abc", namespace: "paperclip-acme" },
     };
@@ -53,6 +53,23 @@ describe("createSandboxCr", () => {
 });
 
 describe("getSandboxCrStatus", () => {
+  it("maps an Agent Sandbox v1beta1 Ready condition", async () => {
+    const get = vi.fn().mockResolvedValue({
+      metadata: { uid: "sandbox-uid-123" },
+      status: {
+        conditions: [{ type: "Ready", status: "True" }],
+      },
+    });
+    const clients = { custom: { getNamespacedCustomObject: get } };
+    const status = await getSandboxCrStatus(clients as never, "ns", "pc-abc");
+    expect(status).toMatchObject({
+      phase: "Running",
+      complete: false,
+      active: 1,
+      failed: 0,
+    });
+  });
+
   it("maps phase=Ready to SandboxStatus.phase=Running with active=1", async () => {
     const get = vi.fn().mockResolvedValue(makeCr("Ready"));
     const clients = { custom: { getNamespacedCustomObject: get } };

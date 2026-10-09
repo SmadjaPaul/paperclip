@@ -40,7 +40,7 @@ export function buildSandboxCrManifest(
     "paperclip.io/role": "agent",
   };
   return {
-    apiVersion: "agents.x-k8s.io/v1alpha1",
+    apiVersion: "agents.x-k8s.io/v1beta1",
     kind: "Sandbox",
     metadata: {
       name: input.sandboxName,

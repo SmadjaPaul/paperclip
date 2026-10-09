@@ -2,14 +2,14 @@
 
 First-party Paperclip sandbox-provider plugin for Kubernetes.
 
-**Alpha:** the default backend (`sandbox-cr`) is built on `kubernetes-sigs/agent-sandbox` v1alpha1 — expect breaking changes as that CRD evolves toward Beta. A stable fallback backend (`job`, using `batch/v1` Job) is available for clusters without agent-sandbox installed, but it does NOT support multi-command exec (paperclip-server's adapter-install pattern requires sandbox-cr).
+**Alpha:** the default backend (`sandbox-cr`) is built on `kubernetes-sigs/agent-sandbox` `v1beta1`. The plugin contract is still alpha, but it no longer targets the removed `v1alpha1` API. A stable fallback backend (`job`, using `batch/v1` Job) is available for clusters without agent-sandbox installed, but it does NOT support multi-command exec (paperclip-server's adapter-install pattern requires sandbox-cr).
 
 ## Prerequisites
 
 ### For `sandbox-cr` backend (default, recommended)
 
 1. A Kubernetes cluster running k8s 1.27+
-2. [`kubernetes-sigs/agent-sandbox`](https://github.com/kubernetes-sigs/agent-sandbox) controller installed in the cluster (alpha — installs the `sandboxes.agents.x-k8s.io/v1alpha1` CRD and controller)
+2. [`kubernetes-sigs/agent-sandbox`](https://github.com/kubernetes-sigs/agent-sandbox) `v1.0.5` or later installed in the cluster, serving the `sandboxes.agents.x-k8s.io/v1beta1` CRD and controller
 3. Paperclip-server running with access to the cluster (in-cluster via `inCluster: true` or external via `kubeconfig`)
 
 ### For `job` backend (stable fallback)
@@ -38,13 +38,13 @@ The plugin supports two backend modes, selected via the `backend` config field:
 | `sandbox-cr` | Yes | Alpha | Yes | `kubernetes-sigs/agent-sandbox` controller |
 | `job` | No | Stable | No | Nothing beyond k8s 1.27+ |
 
-**`sandbox-cr` (default):** Creates a `Sandbox` CR (`agents.x-k8s.io/v1alpha1`) whose controller provisions a long-lived pod running `sleep infinity`. paperclip-server execs individual commands into the running pod — this is the multi-command adapter-install pattern. When you `releaseLease`, the Sandbox CR is deleted and the controller tears down the pod.
+**`sandbox-cr` (default):** Creates a `Sandbox` CR (`agents.x-k8s.io/v1beta1`) whose controller provisions a long-lived pod running `sleep infinity`. paperclip-server execs individual commands into the running pod — this is the multi-command adapter-install pattern. When you `releaseLease`, the Sandbox CR is deleted and the controller tears down the pod.
 
 **`job` (stable fallback):** Creates a `batch/v1` Job. The container entrypoint runs once and exits — no multi-command exec possible. Use this when you cannot install agent-sandbox, or when you need strictly stable Kubernetes APIs. Note: paperclip-server's adapter-install pattern will not work in job mode.
 
 ### Migrating from `job` to `sandbox-cr`
 
-1. Install the agent-sandbox controller: `kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/latest/download/install.yaml`
+1. Install the agent-sandbox controller from a reviewed immutable release: `kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox.yaml`
 2. Update your environment config to set `backend: "sandbox-cr"` (or remove `backend` since `sandbox-cr` is the default)
 3. New leases will use the Sandbox CR backend. Existing leases created with `job` mode continue to use job semantics until they are released.
 
@@ -113,7 +113,7 @@ NetworkPolicy      paperclip-egress-allow         (DNS + paperclip-server callba
 For each agent run (sandbox-cr backend):
 
 ```
-Sandbox CR         pc-{ulid}                       (agents.x-k8s.io/v1alpha1; explicit delete on release)
+Sandbox CR         pc-{ulid}                       (agents.x-k8s.io/v1beta1; explicit delete on release)
 Pod                pc-{ulid}-{podSuffix}           (managed by Sandbox controller; torn down on CR delete)
 Secret             pc-{ulid}-env                   (owned by Sandbox CR; cascade-deleted)
 ```
