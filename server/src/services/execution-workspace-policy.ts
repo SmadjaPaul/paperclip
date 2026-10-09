@@ -61,8 +61,14 @@ export function resolveEffectiveWorkspaceStrategyType(
   if (type === "project_primary" || type === "git_worktree" || type === "adapter_managed" || type === "cloud_sandbox") {
     return type;
   }
-  // Default mirrors workspace-runtime.ts realizeExecutionWorkspace: missing type -> "project_primary".
-  // agent_default is a metadata-only mode that never creates a worktree, so it keeps "adapter_managed".
+  // An isolated/operator run must never silently degrade to the shared project
+  // checkout. The adapter config builder supplies git_worktree for these modes
+  // when no explicit strategy was selected; keep this read-side resolver in
+  // lockstep so validation and persistence see the same strategy.
+  if (mode === "isolated_workspace" || mode === "operator_branch") {
+    return "git_worktree";
+  }
+  // agent_default is a metadata-only mode that never creates a worktree.
   return mode === "agent_default" ? "adapter_managed" : "project_primary";
 }
 
@@ -79,8 +85,12 @@ export function resolvePinnedIssueWorkspaceStrategyType(input: {
   ) {
     return strategyType;
   }
-  // When no explicit strategy type is set, mirror the runtime default (project_primary for most
-  // modes; adapter_managed for agent_default). Mode alone never implies git_worktree.
+  // When no explicit strategy type is set, isolated/operator modes must be
+  // materialized as Git worktrees; falling back to project_primary would make
+  // an isolated issue run in the shared checkout.
+  if (input.mode === "isolated_workspace" || input.mode === "operator_branch") {
+    return "git_worktree";
+  }
   return input.mode === "agent_default" ? "adapter_managed" : "project_primary";
 }
 
@@ -416,7 +426,7 @@ export function buildExecutionWorkspaceAdapterConfig(input: {
   );
   const hasWorkspaceControl = projectHasPolicy || issueHasWorkspaceOverrides || input.legacyUseProjectWorkspace === false;
 
-  if (hasWorkspaceControl) {
+  if (hasWorkspaceControl || input.mode === "isolated_workspace" || input.mode === "operator_branch") {
     if (input.mode === "isolated_workspace") {
       const projectStrategy = projectHasPolicy ? input.projectPolicy?.workspaceStrategy : undefined;
       const issueStrategy = input.issueSettings?.workspaceStrategy;
@@ -425,7 +435,9 @@ export function buildExecutionWorkspaceAdapterConfig(input: {
       const strategy = issueStrategy && projectStrategy?.type === issueStrategy.type
         ? { ...projectStrategy, ...issueStrategy }
         : issueStrategy ?? projectStrategy ??
-        parseExecutionWorkspaceStrategy(nextConfig.workspaceStrategy) ??
+        (parseExecutionWorkspaceStrategy(nextConfig.workspaceStrategy)?.type === "git_worktree"
+          ? parseExecutionWorkspaceStrategy(nextConfig.workspaceStrategy)
+          : null) ??
         ({ type: "git_worktree" } satisfies ExecutionWorkspaceStrategy);
       if (issueStrategy?.existingBranch && issueStrategy.branchTemplate === undefined && strategy !== issueStrategy) {
         delete strategy.branchTemplate;

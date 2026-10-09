@@ -7,16 +7,17 @@ on:
 # Always runs from base branch context — never executes PR code.
 # pull_request_target gives access to secrets for untrusted fork PRs.
 
-permissions:
-  pull-requests: write
-  checks: write
-  contents: read
+permissions: {}
 
 jobs:
   review:
     if: github.repository == 'paperclipai/paperclip'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      pull-requests: write
+      checks: write
+      contents: read
     steps:
       - name: Checkout base branch (never PR code)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -32,6 +33,18 @@ jobs:
         with:
           base-ref: ${{ github.event.pull_request.base.sha }}
           head-ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Document neutral Dependency Review for fork
+        if: github.event.repository.fork == true
+        shell: bash
+        run: |
+          {
+            echo '### Dependency Review'
+            echo
+            echo 'SKIPPED (neutral): dependency graph is unavailable for this fork repository.'
+            echo 'Upstream repository protection is unchanged; supported repositories still run the Dependency Review action.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo '::notice title=Dependency Review::Skipped neutrally because the fork dependency graph is unavailable.'
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -68,10 +81,11 @@ jobs:
           exit 1
 
   fork-review:
-    name: review (fork: neutral/skipped)
+    name: "review (fork: neutral/skipped)"
     if: github.repository != 'paperclipai/paperclip'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Document unavailable fork security review
         shell: bash
@@ -80,6 +94,7 @@ jobs:
             echo '### Commitperclip PR Review'
             echo
             echo 'SKIPPED (neutral): this fork cannot run upstream Dependency Review or secret-backed Commitperclip quality gates.'
+            echo 'Required result: neutral only; this is not a security PASS.'
             echo 'The upstream repository keeps both security gates enabled; this fork result is not a security PASS.'
           } >> "$GITHUB_STEP_SUMMARY"
           echo '::notice title=Commitperclip PR Review::Skipped neutrally because this fork lacks the upstream security capabilities.'

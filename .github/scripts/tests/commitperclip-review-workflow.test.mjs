@@ -13,8 +13,10 @@ test("keeps Dependency Review enabled for the upstream repository", () => {
 });
 
 test("documents, without granting extra permissions, the unavailable fork capability", () => {
-  assert.match(workflow, /fork-review:\n    name: review \(fork: neutral\/skipped\)/);
+  assert.match(workflow, /fork-review:\n    name: "review \(fork: neutral\/skipped\)"/);
   assert.match(workflow, /if: github\.repository != 'paperclipai\/paperclip'[\s\S]*?SKIPPED \(neutral\)/);
-  assert.match(workflow, /permissions:\n  pull-requests: write\n  checks: write\n  contents: read/);
+  assert.match(workflow, /review:\n    if: github\.repository == 'paperclipai\/paperclip'[\s\S]*?permissions:\n      pull-requests: write\n      checks: write\n      contents: read/);
+  assert.match(workflow, /fork-review:[\s\S]*?permissions: \{\}/);
+  assert.match(workflow, /Required result: neutral only; this is not a security PASS/);
   assert.doesNotMatch(workflow, /security-events:\s*write/);
 });

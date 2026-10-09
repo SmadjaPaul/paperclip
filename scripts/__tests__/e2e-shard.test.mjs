@@ -16,6 +16,10 @@ const playwrightConfig = path.join(repoRoot, "tests", "e2e", "playwright.config.
 const prCallerWorkflow = path.join(repoRoot, ".github", "workflows", "pr.yml");
 const trustedPrWorkflowPath = ".github/workflows/pr-trusted.yml";
 const trustedPrWorkflow = path.join(repoRoot, trustedPrWorkflowPath);
+const authorizedTrustedPrWorkflowCalls = new Set([
+  "./.github/workflows/pr-trusted.yml",
+  "paperclipai/paperclip/.github/workflows/pr-trusted.yml@master",
+]);
 
 const SHARD_COUNT = 8;
 
@@ -27,12 +31,15 @@ function runShard(args) {
 
 function readTrustedPrWorkflow() {
   const caller = readFileSync(prCallerWorkflow, "utf8");
-  assert.match(
-    caller,
-    /^\s+uses: paperclipai\/paperclip\/\.github\/workflows\/pr-trusted\.yml@master\s*$/m,
-    "pr.yml must call the trusted workflow from CODEOWNERS-protected master",
+  const call = /^\s+uses:\s+([^\s]+)\s*$/m.exec(caller);
+  assert.ok(call, "pr.yml must call a trusted PR workflow");
+  assert.ok(
+    authorizedTrustedPrWorkflowCalls.has(call[1]),
+    `pr.yml must use one of the exact authorized trusted workflow targets; got ${call[1]}`,
   );
-  // Validate proposed workflow changes locally; CI executes the merged master version.
+  // Validate the checked-in workflow selected by the caller; CI executes this
+  // local reusable workflow for the fork or the protected master workflow for
+  // the canonical repository.
   return readFileSync(trustedPrWorkflow, "utf8");
 }
 
@@ -157,7 +164,7 @@ test("shard arguments are validated", () => {
   }
 });
 
-test("pr.yml calls the trusted PR workflow from master", () => {
+test("pr.yml calls the trusted PR workflow from an authorized target", () => {
   assert.ok(readTrustedPrWorkflow().length > 0);
 });
 
@@ -302,8 +309,8 @@ test("the trusted PR workflow passes the shard's spec filter to Playwright witho
 });
 
 test("the trusted PR workflow regenerates stale stacked lockfiles", () => {
-  // Validate the proposed workflow here. The caller executes the merged master
-  // workflow; edits to this workflow take effect after code-owner review and merge.
+  // Validate the proposed workflow here; edits take effect after code-owner
+  // review and merge.
   const workflow = readFileSync(trustedPrWorkflow, "utf8");
   assert.match(
     workflow,
