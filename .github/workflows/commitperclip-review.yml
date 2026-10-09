@@ -92,6 +92,7 @@ jobs:
             echo '### Commitperclip PR Review'
             echo
             echo 'SKIPPED (neutral): this fork cannot run upstream Dependency Review or secret-backed Commitperclip quality gates.'
+            echo 'Required result: neutral only; this is not a security PASS.'
             echo 'The upstream repository keeps both security gates enabled; this fork result is not a security PASS.'
           } >> "$GITHUB_STEP_SUMMARY"
           echo '::notice title=Commitperclip PR Review::Skipped neutrally because this fork lacks the upstream security capabilities.'
