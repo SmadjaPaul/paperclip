@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paperclip.ai/contracts/agent-test-result-v1.schema.json",
+  "title": "Paperclip agent test result v1",
+  "type": "object",
+  "required": ["contract", "subject", "checks", "transmission"],
+  "properties": {
+    "contract": { "const": "agent-test-result-v1" },
+    "subject": { "type": "string", "minLength": 1 },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "executed", "classification", "reason", "risk", "ciTreatment"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "executed": { "type": "boolean" },
+          "classification": { "enum": ["passed", "failed", "skipped", "unavailable", "not-applicable"] },
+          "reason": { "type": "string", "minLength": 1 },
+          "risk": { "type": "string", "minLength": 1 },
+          "ciTreatment": { "type": "string", "minLength": 1 },
+          "command": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "transmission": {
+      "type": "object",
+      "required": ["status", "records"],
+      "properties": {
+        "status": { "enum": ["complete", "partial"] },
+        "records": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

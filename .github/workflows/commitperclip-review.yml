@@ -7,16 +7,17 @@ on:
 # Always runs from base branch context — never executes PR code.
 # pull_request_target gives access to secrets for untrusted fork PRs.
 
-permissions:
-  pull-requests: write
-  checks: write
-  contents: read
+permissions: {}
 
 jobs:
   review:
     if: github.repository == 'paperclipai/paperclip'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      pull-requests: write
+      checks: write
+      contents: read
     steps:
       - name: Checkout base branch (never PR code)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -80,10 +81,11 @@ jobs:
           exit 1
 
   fork-review:
-    name: review (fork: neutral/skipped)
+    name: "review (fork: neutral/skipped)"
     if: github.repository != 'paperclipai/paperclip'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Document unavailable fork security review
         shell: bash
