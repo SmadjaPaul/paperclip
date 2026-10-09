@@ -1,8 +1,9 @@
 # Paperclip fork Actions preflight
 
-Baseline: `373e536aaa6648070a5774490dde2b01a480099b` (Paperclip PR #5 fork
-head). This document describes the fork policy. It does not enable Actions,
-change repository settings, or grant secrets.
+Baseline: `e633964d794ac539d2f89028c11d3cb0226b5ade` (Paperclip PR #8 fork
+head). `master` at qualification: `ce09c3fd4790461386b22e7a96429f3f482c62b1`.
+This document describes the fork policy. It does not enable Actions, change
+repository settings, or grant secrets.
 
 | Workflow or capability | Trigger | Permissions | Secrets | Side effects | Applies to fork | Cost risk | Decision |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -18,6 +19,10 @@ The fork must not use an upstream reusable workflow reference for its primary
 PR gate. Third-party Actions in fork-controlled workflows are pinned to full
 commit SHAs. A skipped or unavailable security capability is an explicit
 neutral result and is never converted into a security pass.
+
+The changed workflow set was statically checked for mutable third-party action
+references: `agent-runtime-images`, `commitperclip-review`, `docker`, `pr`,
+`release`, and the four runner evaluation workflows.
 
 ### Review rules
 

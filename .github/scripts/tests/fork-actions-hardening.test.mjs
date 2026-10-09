@@ -35,7 +35,18 @@ test("fork scheduled paid campaigns are gated while dispatch remains", async () 
 });
 
 test("changed third-party actions use immutable SHAs", async () => {
-  for (const path of ["workflows/agent-runtime-images.yml", "workflows/docker.yml"]) {
+  const changedWorkflows = [
+    "workflows/agent-runtime-images.yml",
+    "workflows/commitperclip-review.yml",
+    "workflows/docker.yml",
+    "workflows/pr.yml",
+    "workflows/release.yml",
+    "workflows/runner-chaos-evals.yml",
+    "workflows/runner-full-stack-e2e.yml",
+    "workflows/runner-live-evals.yml",
+    "workflows/runner-protocol-live-evals.yml"
+  ];
+  for (const path of changedWorkflows) {
     const workflow = await read(path);
     for (const match of workflow.matchAll(/uses:\s+([^\s]+)@(v[^\s#]+)/g)) {
       assert.fail(`${path} contains mutable action ref ${match[0]}`);
