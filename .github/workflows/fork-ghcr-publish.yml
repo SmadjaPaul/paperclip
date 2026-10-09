@@ -1,0 +1,153 @@
+name: Fork GHCR publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact master SHA to build and publish
+        required: true
+        type: string
+
+# Keep the default token unusable. The publish job grants only the scopes it
+# needs for the registry push and its provenance attestation.
+permissions: {}
+
+concurrency:
+  group: fork-ghcr-${{ github.ref }}-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify-source:
+    name: Verify fork master source
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      last_migration: ${{ steps.source.outputs.last_migration }}
+      migration_count: ${{ steps.source.outputs.migration_count }}
+    steps:
+      - name: Checkout selected master
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Verify repository, ref, and exact source
+        id: source
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+
+          test "${REPOSITORY,,}" = "smadjapaul/paperclip"
+          test "$REF" = "refs/heads/master"
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          checked_out_sha="$(git rev-parse HEAD)"
+          remote_master_sha="$(git ls-remote origin refs/heads/master | cut -f1)"
+          test "$checked_out_sha" = "$REQUESTED_SHA"
+          test "$remote_master_sha" = "$REQUESTED_SHA"
+          git cat-file -e "$REQUESTED_SHA^{commit}"
+
+          last_migration="$(find packages/db/src/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | LC_ALL=C sort | tail -n 1)"
+          migration_count="$(find packages/db/src/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | wc -l | tr -d ' ')"
+          test -n "$last_migration"
+          test "$migration_count" -gt 0
+
+          echo "source_sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
+          echo "last_migration=$last_migration" >> "$GITHUB_OUTPUT"
+          echo "migration_count=$migration_count" >> "$GITHUB_OUTPUT"
+          printf 'Verified fork master source %s with %s migrations; latest is %s.\n' \
+            "$REQUESTED_SHA" "$migration_count" "$last_migration"
+
+  build-and-publish:
+    name: Build and publish linux/amd64
+    needs: verify-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.verify-source.outputs.source_sha }}
+          fetch-depth: 1
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push fork image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          target: production
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/smadjapaul/paperclip:sha-${{ needs.verify-source.outputs.source_sha }}
+          build-args: |
+            PAPERCLIP_BUILD_COMMIT=${{ needs.verify-source.outputs.source_sha }}
+            CLI_TOOLS_CACHE_EPOCH=${{ github.run_id }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify digest, platform, and bundled migrations
+        env:
+          IMAGE: ghcr.io/smadjapaul/paperclip@${{ steps.build.outputs.digest }}
+          LAST_MIGRATION: ${{ needs.verify-source.outputs.last_migration }}
+          MIGRATION_COUNT: ${{ needs.verify-source.outputs.migration_count }}
+        run: |
+          set -euo pipefail
+          test -n "${IMAGE##*@}"
+          docker buildx imagetools inspect "$IMAGE" | tee /tmp/fork-image-inspect.txt
+          grep -Eq 'Platform:[[:space:]]+linux/amd64' /tmp/fork-image-inspect.txt
+          ! grep -Eq 'Platform:[[:space:]]+linux/arm64' /tmp/fork-image-inspect.txt
+
+          docker run --rm --pull always \
+            --entrypoint node \
+            -e LAST_MIGRATION \
+            -e MIGRATION_COUNT \
+            "$IMAGE" \
+            -e '
+              const fs = require("node:fs");
+              const path = require("node:path");
+              const root = "/app/packages/db/dist/migrations";
+              const last = process.env.LAST_MIGRATION;
+              const expected = Number(process.env.MIGRATION_COUNT);
+              const files = fs.readdirSync(root).filter((name) => name.endsWith(".sql"));
+              if (!fs.existsSync(path.join(root, last))) throw new Error(`missing latest migration: ${last}`);
+              if (!fs.existsSync(path.join(root, "meta/_journal.json"))) throw new Error("missing migration journal");
+              if (files.length !== expected) throw new Error(`migration count ${files.length} != ${expected}`);
+              console.log(JSON.stringify({ migrationDirectory: root, latest: last, count: files.length }));
+            '
+
+          {
+            echo "### Fork GHCR image"
+            echo "- source SHA: ${{ needs.verify-source.outputs.source_sha }}"
+            echo "- image: $IMAGE"
+            echo "- platform: linux/amd64"
+            echo "- latest migration: $LAST_MIGRATION"
+            echo "- migration count: $MIGRATION_COUNT"
+            echo "- provenance: Buildx max provenance and registry attestation requested"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest image provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ghcr.io/smadjapaul/paperclip
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
