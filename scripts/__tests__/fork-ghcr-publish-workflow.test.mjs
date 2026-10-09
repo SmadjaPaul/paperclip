@@ -36,11 +36,12 @@ test("fork publication grants registry write only to the publishing job", () => 
 test("fork publication is amd64-only and has supply-chain and migration gates", () => {
   assert.match(workflow, /tags: ghcr\.io\/smadjapaul\/paperclip:sha-\$\{\{ needs\.verify-source\.outputs\.source_sha \}\}/);
   assert.match(workflow, /platforms: linux\/amd64/);
-  assert.doesNotMatch(workflow, /linux\/arm64/);
+  assert.doesNotMatch(workflow, /platforms:\s*linux\/arm64/);
   assert.match(workflow, /provenance: mode=max/);
   assert.match(workflow, /sbom: true/);
   assert.match(workflow, /uses: actions\/attest@[0-9a-f]{40}/);
   assert.match(workflow, /docker buildx imagetools inspect "\$IMAGE"/);
+  assert.match(workflow, /\/app\/packages\/db\/src\/migrations/);
   assert.match(workflow, /missing latest migration/);
   assert.match(workflow, /missing migration journal/);
   assert.match(workflow, /migration count \$\{files\.length\} != \$\{expected\}/);
