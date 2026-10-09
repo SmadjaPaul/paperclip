@@ -125,7 +125,12 @@ jobs:
             -e '
               const fs = require("node:fs");
               const path = require("node:path");
-              const root = "/app/packages/db/dist/migrations";
+              const roots = [
+                "/app/packages/db/src/migrations",
+                "/app/packages/db/dist/migrations",
+              ];
+              const root = roots.find((candidate) => fs.existsSync(candidate));
+              if (!root) throw new Error(`missing migration directory: ${roots.join(", ")}`);
               const last = process.env.LAST_MIGRATION;
               const expected = Number(process.env.MIGRATION_COUNT);
               const files = fs.readdirSync(root).filter((name) => name.endsWith(".sql"));
