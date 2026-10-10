@@ -13,6 +13,12 @@ on:
       - scripts/verify-kubernetes-plugin-image.mjs
       - .github/workflows/kubernetes-plugin-image.yml
   workflow_dispatch:
+    inputs:
+      kind_only:
+        description: Run only the disposable Kind Sandbox E2E, skipping the full image build
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -27,6 +33,7 @@ concurrency:
 jobs:
   build-and-load:
     name: Build and load final amd64 image
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.kind_only != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

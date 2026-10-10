@@ -163,10 +163,30 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
         } catch (error) {
           // Preserve the live controller evidence before the finally block
           // releases the lease and the suite's afterAll removes the tenant.
+          const sandbox = kubectl(
+            `get sandbox.agents.x-k8s.io ${leaseId} -n ${NAMESPACE} -o json 2>&1 || true`,
+          );
+          let generation: number | null = null;
+          let conditions: unknown[] = [];
+          try {
+            const parsed = JSON.parse(sandbox) as {
+              metadata?: { generation?: number };
+              status?: { conditions?: unknown[] };
+            };
+            generation = parsed.metadata?.generation ?? null;
+            conditions = parsed.status?.conditions ?? [];
+          } catch {
+            // Keep the raw kubectl output in the diagnostic record.
+          }
           const diagnostics = {
-            sandbox: kubectl(`get sandbox.agents.x-k8s.io ${leaseId} -n ${NAMESPACE} -o json 2>&1 || true`),
-            pods: kubectl(`get pods -n ${NAMESPACE} -o yaml 2>&1 || true`),
+            sandbox,
+            generation,
+            conditions,
+            podDescribe: kubectl(`describe pods -n ${NAMESPACE} 2>&1 || true`),
             events: kubectl(`get events -n ${NAMESPACE} --sort-by=.lastTimestamp 2>&1 || true`),
+            controllerLogs: kubectl(
+              "logs -n agent-sandbox-system deployment/agent-sandbox-controller --all-containers=true --tail=-1 2>&1 || true",
+            ),
           };
           console.log(JSON.stringify({ check: "READY_DIAGNOSTICS", ...diagnostics }));
           throw error;
