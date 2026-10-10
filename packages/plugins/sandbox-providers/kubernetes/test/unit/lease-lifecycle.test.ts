@@ -6,7 +6,7 @@ import {
 } from "../../src/lease-lifecycle.js";
 
 const SANDBOX_GROUP = "agents.x-k8s.io";
-const SANDBOX_VERSION = "v1alpha1";
+const SANDBOX_VERSION = "v1beta1";
 const SANDBOX_PLURAL = "sandboxes";
 
 function notFound(): Error {
@@ -15,9 +15,9 @@ function notFound(): Error {
 
 function readySandboxCr(podName?: string): Record<string, unknown> {
   return {
-    metadata: { uid: "uid-1" },
+    metadata: { uid: "uid-1", generation: 1 },
     status: {
-      conditions: [{ type: "Ready", status: "True" }],
+      conditions: [{ type: "Ready", status: "True", observedGeneration: 1 }],
       ...(podName ? { podName } : {}),
     },
   };
@@ -82,12 +82,9 @@ describe("checkLeaseResumable (sandbox-cr backend)", () => {
     const clients = {
       custom: {
         getNamespacedCustomObject: vi.fn().mockResolvedValue({
-          metadata: { uid: "uid-1" },
+          metadata: { uid: "uid-1", generation: 1 },
           status: {
-            phase: "Failed",
-            conditions: [
-              { type: "Failed", status: "True", reason: "ImagePullFailed", message: "no image" },
-            ],
+            conditions: [{ type: "Ready", status: "False", reason: "PodFailed", message: "no image", observedGeneration: 1 }],
           },
         }),
       },
@@ -108,8 +105,8 @@ describe("checkLeaseResumable (sandbox-cr backend)", () => {
     const clients = {
       custom: {
         getNamespacedCustomObject: vi.fn().mockResolvedValue({
-          metadata: { uid: "uid-1" },
-          status: { phase: "Pending" },
+          metadata: { uid: "uid-1", generation: 1 },
+          status: { conditions: [{ type: "Ready", status: "False", reason: "DependenciesNotReady", observedGeneration: 1 }] },
         }),
       },
       core: { readNamespacedPod: vi.fn() },
@@ -280,6 +277,46 @@ describe("destroyLeaseResources", () => {
       name: "pc-abc-env",
     });
     expect(clients.batch.deleteNamespacedJob).not.toHaveBeenCalled();
+  });
+
+  it("still cleans every per-run resource after readiness has failed", async () => {
+    const clients = makeClients();
+    const failedSandbox = {
+      metadata: { uid: "uid-1", generation: 3 },
+      status: {
+        conditions: [
+          { type: "Ready", status: "True", observedGeneration: 3 },
+          { type: "Finished", status: "True", reason: "PodFailed", observedGeneration: 3 },
+        ],
+      },
+    };
+
+    const resumable = await checkLeaseResumable(
+      {
+        custom: { getNamespacedCustomObject: vi.fn().mockResolvedValue(failedSandbox) },
+        core: clients.core,
+      } as never,
+      {
+        namespace: "paperclip-acme",
+        name: "pc-abc",
+        backend: "sandbox-cr",
+        readyTimeoutMs: 1000,
+        pollMs: 10,
+      },
+    );
+    expect(resumable).toMatchObject({ resumable: false });
+
+    await destroyLeaseResources(clients as never, {
+      namespace: "paperclip-acme",
+      name: "pc-abc",
+      backend: "sandbox-cr",
+      podName: "pc-abc-pod",
+      secretName: "pc-abc-env",
+    });
+
+    expect(clients.custom.deleteNamespacedCustomObject).toHaveBeenCalledOnce();
+    expect(clients.core.deleteNamespacedPod).toHaveBeenCalledOnce();
+    expect(clients.core.deleteNamespacedSecret).toHaveBeenCalledOnce();
   });
 
   it("deletes the Job instead of the Sandbox CR (job backend)", async () => {

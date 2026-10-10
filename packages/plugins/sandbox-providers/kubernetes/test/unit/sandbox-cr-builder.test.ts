@@ -19,7 +19,7 @@ const baseInput = {
 describe("buildSandboxCrManifest", () => {
   it("returns a Sandbox CR with the correct apiVersion and kind", () => {
     const cr = buildSandboxCrManifest(baseInput);
-    expect(cr.apiVersion).toBe("agents.x-k8s.io/v1alpha1");
+    expect(cr.apiVersion).toBe("agents.x-k8s.io/v1beta1");
     expect(cr.kind).toBe("Sandbox");
   });
 
@@ -42,13 +42,9 @@ describe("buildSandboxCrManifest", () => {
   it("uses sleep-infinity entrypoint via Tini for multi-command exec", () => {
     const cr = buildSandboxCrManifest(baseInput);
     const container = cr.spec.podTemplate.spec.containers[0];
-    expect(container.command).toEqual([
-      "/usr/bin/tini",
-      "--",
-      "/bin/sh",
-      "-c",
-      "sleep infinity",
-    ]);
+    expect(container.command.slice(0, 4)).toEqual(["/usr/bin/tini", "--", "/bin/sh", "-c"]);
+    expect(container.command[4]).toContain("git config --global --add safe.directory /workspace");
+    expect(container.command[4]).toContain("exec sleep infinity");
   });
 
   it("applies the same security baseline as Job backend (non-root, drop ALL, RO rootFS, seccomp)", () => {

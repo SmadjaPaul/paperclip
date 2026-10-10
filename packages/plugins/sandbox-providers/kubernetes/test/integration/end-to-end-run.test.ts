@@ -9,7 +9,7 @@
  *        docker tag alpine:3.20 localhost/paperclip-agent:latest
  *        kind load docker-image localhost/paperclip-agent:latest --name paperclip
  *   3. For the sandbox-cr backend test, the agent-sandbox controller must be installed:
- *        kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/latest/download/install.yaml
+ *        kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox.yaml
  *      And a tini-bearing image pre-loaded (e.g. the same localhost/paperclip-agent:latest
  *      if it includes /usr/bin/tini and /bin/sh).
  *   4. Set the env var and run:

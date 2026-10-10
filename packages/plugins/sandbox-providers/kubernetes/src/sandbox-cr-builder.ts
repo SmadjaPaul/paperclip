@@ -16,6 +16,10 @@
  * release path is explicit delete via sandboxCrOrchestrator.release().
  */
 
+const WORKSPACE_MOUNT_PATH = "/workspace";
+const GIT_SAFE_DIRECTORY_COMMAND =
+  `git config --global --add safe.directory ${WORKSPACE_MOUNT_PATH} || true`;
+
 export interface BuildSandboxCrManifestInput {
   namespace: string;
   sandboxName: string;
@@ -40,7 +44,7 @@ export function buildSandboxCrManifest(
     "paperclip.io/role": "agent",
   };
   return {
-    apiVersion: "agents.x-k8s.io/v1alpha1",
+    apiVersion: "agents.x-k8s.io/v1beta1",
     kind: "Sandbox",
     metadata: {
       name: input.sandboxName,
@@ -94,7 +98,7 @@ export function buildSandboxCrManifest(
                 "--",
                 "/bin/sh",
                 "-c",
-                "sleep infinity",
+                `${GIT_SAFE_DIRECTORY_COMMAND}; exec sleep infinity`,
               ],
               // HOME must point at a writable mount; the image's default
                // HOME=/home/node is inside the readOnly root filesystem.
@@ -121,7 +125,7 @@ export function buildSandboxCrManifest(
                 },
               },
               volumeMounts: [
-                { name: "workspace", mountPath: "/workspace" },
+                { name: "workspace", mountPath: WORKSPACE_MOUNT_PATH },
                 { name: "home", mountPath: "/home/paperclip" },
                 { name: "cache", mountPath: "/home/paperclip/.cache" },
                 { name: "tmp", mountPath: "/tmp" },

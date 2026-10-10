@@ -1,6 +1,6 @@
 /**
  * SandboxOrchestrator implementation backed by the kubernetes-sigs/agent-sandbox
- * Sandbox CRD (agents.x-k8s.io/v1alpha1).
+ * Sandbox CRD (agents.x-k8s.io/v1beta1).
  *
  * The Sandbox CR creates a long-lived pod that paperclip-server can exec into
  * for multi-command adapter-install workflows — the key architectural win over
@@ -25,7 +25,7 @@ import type { KubeClients } from "./kube-client.js";
 import type { SandboxOrchestrator, SandboxStatus } from "./sandbox-orchestrator.js";
 
 const SANDBOX_GROUP = "agents.x-k8s.io";
-const SANDBOX_VERSION = "v1alpha1";
+const SANDBOX_VERSION = "v1beta1";
 const SANDBOX_PLURAL = "sandboxes";
 
 export class SandboxCrTimeoutError extends Error {
@@ -42,56 +42,94 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Map a Sandbox CR status.phase value to our SandboxStatus shape.
- * Sandbox phases: Pending | Ready | Terminating | Failed
+ * Map the v1beta1 condition-based Sandbox status to our internal shape.
+ * v1beta1 deliberately has no phase field; readiness is represented by the
+ * Ready condition. Finished is terminal for the sandbox pod, not proof that
+ * the coding-agent commands succeeded.
  */
 function mapSandboxPhase(
   cr: Record<string, unknown>,
 ): SandboxStatus {
   const status = (cr.status as Record<string, unknown>) ?? {};
-  const phase = (status.phase as string) ?? "Pending";
+  const metadata = (cr.metadata as Record<string, unknown>) ?? {};
+  const conditions = Array.isArray(status.conditions)
+    ? (status.conditions as Array<Record<string, unknown>>)
+    : [];
+  const isCurrent = (condition: Record<string, unknown>): boolean => {
+    const observed = condition.observedGeneration;
+    const generation = metadata.generation;
+    return typeof generation === "number" && observed === generation;
+  };
+  const current = (type: string) =>
+    conditions.find((condition) => condition.type === type && isCurrent(condition));
+  const conditionText = (condition: Record<string, unknown> | undefined) => ({
+    reason: typeof condition?.reason === "string" ? condition.reason : undefined,
+    message: typeof condition?.message === "string" ? condition.message : undefined,
+  });
 
-  switch (phase) {
-    case "Ready":
-      return {
-        phase: "Running", // SandboxStatus.phase uses Job semantics; "Running" = active pod
-        complete: false,
-        active: 1,
-        succeeded: 0,
-        failed: 0,
-      };
-    case "Terminating":
-      return {
-        phase: "Running",
-        complete: false,
-        active: 0,
-        succeeded: 0,
-        failed: 0,
-        reason: "Terminating",
-      };
-    case "Failed": {
-      const conditions = (status.conditions as { type?: string; reason?: string; message?: string }[]) ?? [];
-      const failedCond = conditions.find((c) => c.type === "Failed");
-      return {
-        phase: "Failed",
-        complete: false,
-        active: 0,
-        succeeded: 0,
-        failed: 1,
-        reason: failedCond?.reason,
-        message: failedCond?.message,
-      };
-    }
-    default:
-      // "Pending" or unknown
-      return {
-        phase: "Pending",
-        complete: false,
-        active: 0,
-        succeeded: 0,
-        failed: 0,
-      };
+  const finished = current("Finished");
+  if (finished?.status === "True") {
+    const text = conditionText(finished);
+    return {
+      phase: "Failed",
+      complete: false,
+      active: 0,
+      succeeded: 0,
+      failed: 1,
+      reason: text.reason ?? "SandboxFinished",
+      message: text.message ?? "The Sandbox pod finished before the coding-agent run completed.",
+    };
   }
+
+  const ready = current("Ready");
+  const terminalReadyReasons = new Set([
+    "InvalidConfiguration",
+    "MultiplePods",
+    "SandboxExpired",
+    "SandboxSuspended",
+    "PodSucceeded",
+    "PodFailed",
+  ]);
+  if (ready?.status === "False" && terminalReadyReasons.has(String(ready.reason))) {
+    const text = conditionText(ready);
+    return {
+      phase: "Failed",
+      complete: false,
+      active: 0,
+      succeeded: 0,
+      failed: 1,
+      reason: text.reason,
+      message: text.message,
+    };
+  }
+  if (ready?.status === "True") {
+    return {
+      phase: "Running",
+      complete: false,
+      active: 1,
+      succeeded: 0,
+      failed: 0,
+    };
+  }
+
+  // DependenciesNotReady, ReconcilerError, unknown Ready=False reasons, stale
+  // conditions and the legacy phase field are all non-authoritative for
+  // v1beta1 readiness. Keep them Pending and wait for a fenced Ready condition.
+  return {
+    phase: "Pending",
+    complete: false,
+    active: 0,
+    succeeded: 0,
+    failed: 0,
+  };
+}
+
+function sandboxFailureMessage(
+  namespace: string,
+  name: string,
+  status: SandboxStatus,
+): string {
+  return `Sandbox ${namespace}/${name} failed: ${status.reason ?? "unknown reason"} — ${status.message ?? ""}`;
 }
 
 export async function createSandboxCr(
@@ -265,24 +303,22 @@ export async function waitForSandboxReady(
       name,
     }) as Record<string, unknown>;
 
-    const status = (cr.status as Record<string, unknown>) ?? {};
-    // agent-sandbox v1alpha1 uses status.conditions[type=Ready,status=True],
-    // not status.phase. Fall back to phase for forward-compat.
-    const conditions = Array.isArray(status.conditions) ? status.conditions as Array<Record<string, unknown>> : [];
-    const readyCondition = conditions.find((c) => c.type === "Ready");
-    const failedCondition = conditions.find((c) => c.type === "Failed" || (c.type === "Ready" && c.status === "False" && typeof c.reason === "string" && /failed/i.test(c.reason)));
-    const phase = (status.phase as string) ?? "";
-
-    if (readyCondition?.status === "True" || phase === "Ready") {
-      return mapSandboxPhase(cr);
+    const metadata = (cr.metadata as Record<string, unknown>) ?? {};
+    if (typeof metadata.deletionTimestamp === "string" && metadata.deletionTimestamp.length > 0) {
+      throw new Error(`Sandbox ${namespace}/${name} is being deleted — cannot wait for Ready`);
     }
-    if (failedCondition?.status === "True" || phase === "Failed") {
-      const mapped = mapSandboxPhase(cr);
-      throw new Error(
-        `Sandbox ${namespace}/${name} failed: ${mapped.reason ?? (failedCondition?.reason as string) ?? "unknown reason"} — ${mapped.message ?? (failedCondition?.message as string) ?? ""}`,
-      );
+    // Use the exact same condition ordering and generation filtering as
+    // getSandboxCrStatus(). A current terminal condition must win over Ready;
+    // otherwise this loop can return a Failed status that callers interpret as
+    // successful readiness and then exec into a dead pod.
+    const mapped = mapSandboxPhase(cr);
+    if (mapped.phase === "Failed") {
+      throw new Error(sandboxFailureMessage(namespace, name, mapped));
     }
-    if (phase === "Terminating") {
+    if (mapped.phase === "Running" && mapped.reason !== "Terminating") {
+      return mapped;
+    }
+    if (mapped.reason === "Terminating") {
       // A Sandbox being torn down will never transition to Ready. Polling
       // until the deadline would burn the full timeoutMs (potentially
       // 30+ minutes) before throwing a generic timeout. Fail fast instead

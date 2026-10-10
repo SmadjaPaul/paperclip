@@ -31,9 +31,9 @@ function notFound(): Error {
 
 function readySandboxCr(podName: string): Record<string, unknown> {
   return {
-    metadata: { uid: "uid-1" },
+    metadata: { uid: "uid-1", generation: 1 },
     status: {
-      conditions: [{ type: "Ready", status: "True" }],
+      conditions: [{ type: "Ready", status: "True", observedGeneration: 1 }],
       podName,
     },
   };

@@ -17,6 +17,6 @@
 #   - kata-containers with Firecracker hypervisor
 #   - nested-virt-capable nodes
 #
-# Future backends (not currently required):
-#   - kubernetes-sigs/agent-sandbox (when it reaches v1beta1) as an alternative
-#     backend for warm pools / templates / pause-resume.
+# Optional sandbox-cr backend:
+#   - kubernetes-sigs/agent-sandbox v1.0.5 (or later) serving
+#     agents.x-k8s.io/v1beta1.
