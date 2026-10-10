@@ -70,7 +70,7 @@ cilium install --version 1.17.6 --set kubeProxyReplacement=true
 cilium status --wait --wait-duration 5m
 
 curl -fsSL -o "$RUNNER_TEMP/sandbox.yaml" https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml
-echo 'b150cb058c577c59c42b060ff7f22e31b5311ca80430db98129f1280a0e85970  sandbox.yaml' | sha256sum -c -
+echo "b150cb058c577c59c42b060ff7f22e31b5311ca80430db98129f1280a0e85970  $RUNNER_TEMP/sandbox.yaml" | sha256sum -c -
 kubectl --kubeconfig "$KIND_KUBECONFIG" apply -f "$RUNNER_TEMP/sandbox.yaml"
 kubectl --kubeconfig "$KIND_KUBECONFIG" wait --for=condition=Established crd/sandboxes.agents.x-k8s.io --timeout=120s
 kubectl --kubeconfig "$KIND_KUBECONFIG" rollout status deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=180s

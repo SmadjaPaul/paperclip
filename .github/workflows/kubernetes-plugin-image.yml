@@ -120,4 +120,5 @@ jobs:
         with:
           name: paperclip-kind-e2e-${{ env.SOURCE_SHA }}
           path: ${{ github.workspace }}/.paperclip-kind-evidence
+          include-hidden-files: true
           if-no-files-found: error
