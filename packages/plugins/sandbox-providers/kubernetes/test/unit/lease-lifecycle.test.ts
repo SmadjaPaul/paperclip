@@ -15,9 +15,9 @@ function notFound(): Error {
 
 function readySandboxCr(podName?: string): Record<string, unknown> {
   return {
-    metadata: { uid: "uid-1" },
+    metadata: { uid: "uid-1", generation: 1 },
     status: {
-      conditions: [{ type: "Ready", status: "True" }],
+      conditions: [{ type: "Ready", status: "True", observedGeneration: 1 }],
       ...(podName ? { podName } : {}),
     },
   };
@@ -82,12 +82,9 @@ describe("checkLeaseResumable (sandbox-cr backend)", () => {
     const clients = {
       custom: {
         getNamespacedCustomObject: vi.fn().mockResolvedValue({
-          metadata: { uid: "uid-1" },
+          metadata: { uid: "uid-1", generation: 1 },
           status: {
-            phase: "Failed",
-            conditions: [
-              { type: "Failed", status: "True", reason: "ImagePullFailed", message: "no image" },
-            ],
+            conditions: [{ type: "Ready", status: "False", reason: "PodFailed", message: "no image", observedGeneration: 1 }],
           },
         }),
       },
@@ -108,8 +105,8 @@ describe("checkLeaseResumable (sandbox-cr backend)", () => {
     const clients = {
       custom: {
         getNamespacedCustomObject: vi.fn().mockResolvedValue({
-          metadata: { uid: "uid-1" },
-          status: { phase: "Pending" },
+          metadata: { uid: "uid-1", generation: 1 },
+          status: { conditions: [{ type: "Ready", status: "False", reason: "DependenciesNotReady", observedGeneration: 1 }] },
         }),
       },
       core: { readNamespacedPod: vi.fn() },

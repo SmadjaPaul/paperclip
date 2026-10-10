@@ -12,12 +12,18 @@ const SANDBOX_GROUP = "agents.x-k8s.io";
 const SANDBOX_VERSION = "v1beta1";
 const SANDBOX_PLURAL = "sandboxes";
 
-// Helpers to build mock CR objects with given phase
+// Helpers to build mock v1beta1 CR objects with generation-fenced conditions.
 function makeCr(phase: string, podName?: string): Record<string, unknown> {
+  const ready = phase === "Ready";
   return {
-    metadata: { uid: "sandbox-uid-123" },
+    metadata: { uid: "sandbox-uid-123", generation: 1 },
     status: {
-      phase,
+      conditions: [{
+        type: "Ready",
+        status: ready ? "True" : "False",
+        reason: ready ? "Ready" : "DependenciesNotReady",
+        observedGeneration: 1,
+      }],
       ...(podName ? { podName } : {}),
     },
   };
@@ -55,9 +61,9 @@ describe("createSandboxCr", () => {
 describe("getSandboxCrStatus", () => {
   it("maps an Agent Sandbox v1beta1 Ready condition", async () => {
     const get = vi.fn().mockResolvedValue({
-      metadata: { uid: "sandbox-uid-123" },
+      metadata: { uid: "sandbox-uid-123", generation: 1 },
       status: {
-        conditions: [{ type: "Ready", status: "True" }],
+        conditions: [{ type: "Ready", status: "True", observedGeneration: 1 }],
       },
     });
     const clients = { custom: { getNamespacedCustomObject: get } };
@@ -72,10 +78,10 @@ describe("getSandboxCrStatus", () => {
 
   it("fails closed when Finished is present even alongside Ready", async () => {
     const get = vi.fn().mockResolvedValue({
-      metadata: { uid: "u1" },
+      metadata: { uid: "u1", generation: 1 },
       status: { conditions: [
-        { type: "Ready", status: "True" },
-        { type: "Finished", status: "True", reason: "PodFailed" },
+        { type: "Ready", status: "True", observedGeneration: 1 },
+        { type: "Finished", status: "True", reason: "PodFailed", observedGeneration: 1 },
       ] },
     });
     const status = await getSandboxCrStatus({ custom: { getNamespacedCustomObject: get } } as never, "ns", "pc-abc");
@@ -85,35 +91,59 @@ describe("getSandboxCrStatus", () => {
 
   it("does not interpret PodSucceeded as coding-agent success", async () => {
     const get = vi.fn().mockResolvedValue({
-      metadata: { uid: "u1" },
-      status: { conditions: [{ type: "Finished", status: "True", reason: "PodSucceeded" }] },
+      metadata: { uid: "u1", generation: 1 },
+      status: { conditions: [{ type: "Finished", status: "True", reason: "PodSucceeded", observedGeneration: 1 }] },
     });
     const status = await getSandboxCrStatus({ custom: { getNamespacedCustomObject: get } } as never, "ns", "pc-abc");
     expect(status).toMatchObject({ phase: "Failed", complete: false, failed: 1, succeeded: 0 });
   });
 
-  it("treats terminal sandbox reasons and unknown Finished as failure", async () => {
-    for (const condition of [
-      { type: "InvalidConfiguration", status: "True" },
-      { type: "MultiplePods", status: "True" },
-      { type: "SandboxExpired", status: "True" },
-      { type: "SandboxSuspended", status: "True" },
-      { type: "Finished", status: "True" },
+  it("treats terminal Ready=False reasons as failure", async () => {
+    for (const reason of [
+      "InvalidConfiguration",
+      "MultiplePods",
+      "SandboxExpired",
+      "SandboxSuspended",
+      "PodSucceeded",
+      "PodFailed",
     ]) {
-      const get = vi.fn().mockResolvedValue({ metadata: { uid: "u1" }, status: { conditions: [condition] } });
+      const get = vi.fn().mockResolvedValue({
+        metadata: { uid: "u1", generation: 1 },
+        status: { conditions: [{ type: "Ready", status: "False", reason, observedGeneration: 1 }] },
+      });
       const status = await getSandboxCrStatus({ custom: { getNamespacedCustomObject: get } } as never, "ns", "pc-abc");
       expect(status.phase).toBe("Failed");
       expect(status.failed).toBe(1);
     }
   });
 
-  it("ignores stale conditions but retains the legacy Ready phase fallback", async () => {
+  it("keeps DependenciesNotReady and ReconcilerError transient", async () => {
+    for (const reason of ["DependenciesNotReady", "ReconcilerError"]) {
+      const get = vi.fn().mockResolvedValue({
+        metadata: { uid: "u1", generation: 2 },
+        status: { conditions: [{ type: "Ready", status: "False", reason, observedGeneration: 2 }] },
+      });
+      const status = await getSandboxCrStatus({ custom: { getNamespacedCustomObject: get } } as never, "ns", "pc-abc");
+      expect(status.phase).toBe("Pending");
+    }
+  });
+
+  it("does not authorize Ready without observedGeneration", async () => {
+    const get = vi.fn().mockResolvedValue({
+      metadata: { uid: "u1", generation: 2 },
+      status: { conditions: [{ type: "Ready", status: "True" }] },
+    });
+    const status = await getSandboxCrStatus({ custom: { getNamespacedCustomObject: get } } as never, "ns", "pc-abc");
+    expect(status.phase).toBe("Pending");
+  });
+
+  it("ignores stale conditions and does not use status.phase as a readiness fallback", async () => {
     const get = vi.fn().mockResolvedValue({
       metadata: { uid: "u1", generation: 2 },
       status: { phase: "Ready", conditions: [{ type: "Ready", status: "True", observedGeneration: 1 }] },
     });
     const status = await getSandboxCrStatus({ custom: { getNamespacedCustomObject: get } } as never, "ns", "pc-abc");
-    expect(status.phase).toBe("Running");
+    expect(status.phase).toBe("Pending");
   });
 
   it("keeps ReconcilerError pending", async () => {
@@ -125,7 +155,7 @@ describe("getSandboxCrStatus", () => {
     expect(status.phase).toBe("Pending");
   });
 
-  it("maps phase=Ready to SandboxStatus.phase=Running with active=1", async () => {
+  it("maps a fenced Ready condition to SandboxStatus.phase=Running with active=1", async () => {
     const get = vi.fn().mockResolvedValue(makeCr("Ready"));
     const clients = { custom: { getNamespacedCustomObject: get } };
     const status = await getSandboxCrStatus(clients as never, "ns", "pc-abc");
@@ -134,7 +164,7 @@ describe("getSandboxCrStatus", () => {
     expect(status.complete).toBe(false);
   });
 
-  it("maps phase=Pending to SandboxStatus.phase=Pending", async () => {
+  it("maps a fenced Pending condition to SandboxStatus.phase=Pending", async () => {
     const get = vi.fn().mockResolvedValue(makeCr("Pending"));
     const clients = { custom: { getNamespacedCustomObject: get } };
     const status = await getSandboxCrStatus(clients as never, "ns", "pc-abc");
@@ -142,29 +172,29 @@ describe("getSandboxCrStatus", () => {
     expect(status.active).toBe(0);
   });
 
-  it("maps phase=Failed to SandboxStatus.phase=Failed with failed=1", async () => {
+  it("maps a terminal Ready=False condition to SandboxStatus.phase=Failed with failed=1", async () => {
     const get = vi.fn().mockResolvedValue({
-      metadata: { uid: "uid-1" },
+      metadata: { uid: "uid-1", generation: 1 },
       status: {
-        phase: "Failed",
-        conditions: [
-          { type: "Failed", reason: "ImagePullFailed", message: "no image" },
-        ],
+        conditions: [{ type: "Ready", status: "False", reason: "PodFailed", message: "no image", observedGeneration: 1 }],
       },
     });
     const clients = { custom: { getNamespacedCustomObject: get } };
     const status = await getSandboxCrStatus(clients as never, "ns", "pc-abc");
     expect(status.phase).toBe("Failed");
     expect(status.failed).toBe(1);
-    expect(status.reason).toBe("ImagePullFailed");
+    expect(status.reason).toBe("PodFailed");
   });
 
-  it("maps phase=Terminating to SandboxStatus.phase=Running with reason=Terminating", async () => {
-    const get = vi.fn().mockResolvedValue(makeCr("Terminating"));
+  it("does not infer Terminating from the removed legacy phase field", async () => {
+    const get = vi.fn().mockResolvedValue({
+      metadata: { uid: "uid-1", generation: 1 },
+      status: { phase: "Terminating", conditions: [] },
+    });
     const clients = { custom: { getNamespacedCustomObject: get } };
     const status = await getSandboxCrStatus(clients as never, "ns", "pc-abc");
-    expect(status.phase).toBe("Running");
-    expect(status.reason).toBe("Terminating");
+    expect(status.phase).toBe("Pending");
+    expect(status.reason).toBeUndefined();
   });
 });
 
@@ -334,16 +364,20 @@ describe("waitForSandboxReady", () => {
     expect(get).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["InvalidConfiguration", "SandboxExpired"])(
-    "fails before returning when Ready and %s are both current",
+  it.each([
+    "InvalidConfiguration",
+    "MultiplePods",
+    "SandboxExpired",
+    "SandboxSuspended",
+    "PodSucceeded",
+    "PodFailed",
+  ])(
+    "fails before returning when Ready=False has terminal reason %s",
     async (terminalType) => {
       const get = vi.fn().mockResolvedValue({
         metadata: { uid: "u1", generation: 4 },
         status: {
-          conditions: [
-            { type: "Ready", status: "True", observedGeneration: 4 },
-            { type: terminalType, status: "True", observedGeneration: 4 },
-          ],
+          conditions: [{ type: "Ready", status: "False", reason: terminalType, observedGeneration: 4 }],
         },
       });
       await expect(
@@ -388,8 +422,8 @@ describe("waitForSandboxReady", () => {
 
   it("throws an error describing the failure when Sandbox fails", async () => {
     const get = vi.fn().mockResolvedValue({
-      metadata: { uid: "u1" },
-      status: { phase: "Failed", conditions: [{ type: "Failed", reason: "OOMKilled" }] },
+      metadata: { uid: "u1", generation: 1 },
+      status: { conditions: [{ type: "Ready", status: "False", reason: "PodFailed", message: "OOMKilled", observedGeneration: 1 }] },
     });
     const clients = { custom: { getNamespacedCustomObject: get } };
     await expect(
@@ -397,7 +431,7 @@ describe("waitForSandboxReady", () => {
         timeoutMs: 5000,
         pollMs: 10,
       }),
-    ).rejects.toThrow(/failed.*OOMKilled/i);
+    ).rejects.toThrow(/failed.*PodFailed/i);
   });
 
   it("fails fast when the Sandbox is being deleted", async () => {

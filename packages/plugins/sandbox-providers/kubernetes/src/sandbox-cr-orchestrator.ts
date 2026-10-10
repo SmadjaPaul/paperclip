@@ -57,9 +57,8 @@ function mapSandboxPhase(
     : [];
   const isCurrent = (condition: Record<string, unknown>): boolean => {
     const observed = condition.observedGeneration;
-    if (observed === undefined || observed === null) return true;
-    const generation = metadata.generation ?? status.observedGeneration;
-    return generation !== undefined && generation !== null && observed === generation;
+    const generation = metadata.generation;
+    return typeof generation === "number" && observed === generation;
   };
   const current = (type: string) =>
     conditions.find((condition) => condition.type === type && isCurrent(condition));
@@ -82,43 +81,17 @@ function mapSandboxPhase(
     };
   }
 
-  const terminalFailure = [
+  const ready = current("Ready");
+  const terminalReadyReasons = new Set([
     "InvalidConfiguration",
     "MultiplePods",
     "SandboxExpired",
     "SandboxSuspended",
-  ]
-    .map((type) => current(type))
-    .find((condition) => condition?.status === "True");
-  if (terminalFailure) {
-    const text = conditionText(terminalFailure);
-    return {
-      phase: "Failed",
-      complete: false,
-      active: 0,
-      succeeded: 0,
-      failed: 1,
-      reason: text.reason ?? String(terminalFailure.type),
-      message: text.message,
-    };
-  }
-
-  const ready = current("Ready");
-  if (ready?.status === "True") {
-    return {
-      phase: "Running",
-      complete: false,
-      active: 1,
-      succeeded: 0,
-      failed: 0,
-    };
-  }
-
-  const failed = current("Failed");
-  if (failed?.status === "True" ||
-      (ready?.status === "False" && /fail|error/i.test(`${ready.reason ?? ""} ${ready.message ?? ""}`))) {
-    const source = failed ?? ready;
-    const text = conditionText(source);
+    "PodSucceeded",
+    "PodFailed",
+  ]);
+  if (ready?.status === "False" && terminalReadyReasons.has(String(ready.reason))) {
+    const text = conditionText(ready);
     return {
       phase: "Failed",
       complete: false,
@@ -129,50 +102,26 @@ function mapSandboxPhase(
       message: text.message,
     };
   }
-
-  // ReconcilerError and unknown conditions stay Pending. A stale Ready
-  // condition must not override the legacy phase fallback.
-  const phase = (status.phase as string) ?? "Pending";
-  switch (phase) {
-    case "Ready":
-      return {
-        phase: "Running",
-        complete: false,
-        active: 1,
-        succeeded: 0,
-        failed: 0,
-      };
-    case "Terminating":
-      return {
-        phase: "Running",
-        complete: false,
-        active: 0,
-        succeeded: 0,
-        failed: 0,
-        reason: "Terminating",
-      };
-    case "Failed": {
-      const failedCond = current("Failed");
-      const text = conditionText(failedCond);
-      return {
-        phase: "Failed",
-        complete: false,
-        active: 0,
-        succeeded: 0,
-        failed: 1,
-        reason: text.reason,
-        message: text.message,
-      };
-    }
-    default:
-      return {
-        phase: "Pending",
-        complete: false,
-        active: 0,
-        succeeded: 0,
-        failed: 0,
-      };
+  if (ready?.status === "True") {
+    return {
+      phase: "Running",
+      complete: false,
+      active: 1,
+      succeeded: 0,
+      failed: 0,
+    };
   }
+
+  // DependenciesNotReady, ReconcilerError, unknown Ready=False reasons, stale
+  // conditions and the legacy phase field are all non-authoritative for
+  // v1beta1 readiness. Keep them Pending and wait for a fenced Ready condition.
+  return {
+    phase: "Pending",
+    complete: false,
+    active: 0,
+    succeeded: 0,
+    failed: 0,
+  };
 }
 
 function sandboxFailureMessage(
