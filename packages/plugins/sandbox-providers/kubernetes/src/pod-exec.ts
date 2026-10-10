@@ -19,6 +19,11 @@
  */
 
 import { Exec } from "@kubernetes/client-node";
+import {
+  WebSocketHandler,
+  type WebSocketInterface,
+} from "@kubernetes/client-node/dist/web-socket-handler.js";
+import WebSocket from "isomorphic-ws";
 import { PassThrough } from "node:stream";
 import type { Readable, Writable } from "node:stream";
 import type { KubeConfig } from "@kubernetes/client-node";
@@ -27,6 +32,90 @@ import type { KubeConfig } from "@kubernetes/client-node";
 // comes from @kubernetes/client-node's transitive ws/isomorphic-ws dep but
 // importing it directly couples this file to that internal choice.
 type WebSocketLike = { close(): void };
+
+/**
+ * Normalize binary WebSocket events before they reach client-node's stream
+ * demultiplexer. The Kubernetes exec protocol uses binary frames, but the
+ * isomorphic-ws adapter is allowed to expose a frame as ArrayBuffer or a typed
+ * array. client-node 1.4.0 only dispatches Buffer frames, so an unnormalized
+ * frame silently produces neither stream data nor the terminal status callback
+ * and the caller eventually hits its watchdog.
+ */
+export function normalizeWebSocketMessageData(data: unknown): unknown {
+  if (typeof data === "string" || Buffer.isBuffer(data)) return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data);
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (Array.isArray(data) && data.every((part) => Buffer.isBuffer(part))) {
+    return Buffer.concat(data);
+  }
+  return data;
+}
+
+function createExecWebSocketHandler(kc: KubeConfig): WebSocketInterface {
+  const protocols = [
+    "v5.channel.k8s.io",
+    "v4.channel.k8s.io",
+    "v3.channel.k8s.io",
+    "v2.channel.k8s.io",
+    "channel.k8s.io",
+  ];
+
+  return {
+    async connect(path, textHandler, binaryHandler) {
+      const cluster = kc.getCurrentCluster();
+      if (!cluster) throw new Error("No cluster is defined.");
+      const server = cluster.server;
+      const ssl = server.startsWith("https://");
+      const target = ssl ? server.slice(8) : server.slice(7);
+      const uri = `${ssl ? "wss" : "ws"}://${target}${path}`;
+      const opts = {};
+      await kc.applyToHTTPSOptions(opts);
+
+      return await new Promise<WebSocket>((resolve, reject) => {
+        const client = new WebSocket(uri, protocols, opts);
+        client.binaryType = "nodebuffer";
+        let opened = false;
+
+        client.on("open", () => {
+          opened = true;
+          resolve(client);
+        });
+        client.on("error", (err: unknown) => {
+          if (!opened) reject(err);
+        });
+        client.on("message", (data: unknown) => {
+          const normalized = normalizeWebSocketMessageData(data);
+          if (typeof normalized === "string") {
+            if (normalized.charCodeAt(0) === WebSocketHandler.CloseStream) {
+              WebSocketHandler.closeStream(normalized.charCodeAt(1), {
+                stdin: process.stdin,
+                stdout: process.stdout,
+                stderr: process.stderr,
+              });
+            }
+            if (textHandler && !textHandler(normalized)) client.close();
+            return;
+          }
+          if (!Buffer.isBuffer(normalized)) return;
+
+          const streamNum = normalized.readUint8(0);
+          if (streamNum === WebSocketHandler.CloseStream) {
+            WebSocketHandler.closeStream(normalized.readInt8(1), {
+              stdin: process.stdin,
+              stdout: process.stdout,
+              stderr: process.stderr,
+            });
+          }
+          if (binaryHandler && !binaryHandler(streamNum, normalized.subarray(1))) {
+            client.close();
+          }
+        });
+      });
+    },
+  };
+}
 
 // Single-quote a string for safe interpolation into a sh -c script. Wraps in
 // '...' and escapes any embedded single quotes via '\'' (close, escape, reopen).
@@ -80,7 +169,7 @@ export async function execInPod(
   // max-string-length `RangeError` can never escape as an uncaught exception.
   maxStderrBytes?: number,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const exec = new Exec(kc);
+  const exec = new Exec(kc, createExecWebSocketHandler(kc));
   const stdoutStream = new PassThrough();
   const stderrStream = new PassThrough();
 
@@ -308,7 +397,7 @@ export async function execInPodStreaming(
     maxStderrBytes?: number;
   },
 ): Promise<{ exitCode: number; stderr: string }> {
-  const exec = new Exec(kc);
+  const exec = new Exec(kc, createExecWebSocketHandler(kc));
   const stdoutStream = new PassThrough();
   const stderrStream = new PassThrough();
   const stdinStream: PassThrough | null = io.stdin ? new PassThrough() : null;

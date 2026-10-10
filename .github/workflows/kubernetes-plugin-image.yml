@@ -12,9 +12,19 @@ on:
       - scripts/link-plugin-dev-sdk.mjs
       - scripts/verify-kubernetes-plugin-image.mjs
       - .github/workflows/kubernetes-plugin-image.yml
+  workflow_dispatch:
+    inputs:
+      kind_only:
+        description: Run only the disposable Kind Sandbox E2E, skipping the full image build
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 concurrency:
   group: kubernetes-plugin-image-${{ github.event.pull_request.number }}
@@ -23,19 +33,20 @@ concurrency:
 jobs:
   build-and-load:
     name: Build and load final amd64 image
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.kind_only != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Checkout exact pull request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 1
           persist-credentials: false
 
       - name: Verify exact source revision
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ env.SOURCE_SHA }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Set up Buildx
@@ -50,21 +61,71 @@ jobs:
           push: false
           load: true
           provenance: false
-          tags: paperclip-kubernetes-candidate:${{ github.event.pull_request.head.sha }}
+          tags: paperclip-kubernetes-candidate:${{ env.SOURCE_SHA }}
           build-args: |
             CLOUD_BUNDLED_PLUGINS=kubernetes
             CLOUD_BUNDLED_SERVER_DEPS=@sentry/node
-            PAPERCLIP_BUILD_COMMIT=${{ github.event.pull_request.head.sha }}
-            PAPERCLIP_BUILD_VERSION=0.0.0-kubernetes-candidate.g${{ github.event.pull_request.head.sha }}
+            PAPERCLIP_BUILD_COMMIT=${{ env.SOURCE_SHA }}
+            PAPERCLIP_BUILD_VERSION=0.0.0-kubernetes-candidate.g${{ env.SOURCE_SHA }}
             CLI_TOOLS_CACHE_EPOCH=${{ github.run_id }}
 
       - name: Verify bundled plugin and runtime module resolution
         env:
-          IMAGE: paperclip-kubernetes-candidate:${{ github.event.pull_request.head.sha }}
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          IMAGE: paperclip-kubernetes-candidate:${{ env.SOURCE_SHA }}
+          EXPECTED_SHA: ${{ env.SOURCE_SHA }}
         run: |
           docker run --rm \
             --entrypoint node \
             -e EXPECTED_PAPERCLIP_COMMIT="$EXPECTED_SHA" \
             "$IMAGE" \
             /app/scripts/verify-kubernetes-plugin-image.mjs
+
+  kind-e2e:
+    name: Disposable Kind Sandbox E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      KIND_CLUSTER: paperclip-e2e
+      KIND_CONTEXT: kind-paperclip-e2e
+      KIND_KUBECONFIG: ${{ github.workspace }}/.paperclip-kind.kubeconfig
+      PAPERCLIP_PLUGIN_KUBECONFIG: ${{ github.workspace }}/.paperclip-plugin.kubeconfig
+      KUBECONFIG: ${{ github.workspace }}/.paperclip-kind.kubeconfig
+      OPENCODE_IMAGE: ghcr.io/paperclipai/agent-runtime-opencode@sha256:349fc68e609998f1d9fc77f94208d50263368b49631f746a51f819917d9b0d2d
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact source revision
+        env:
+          EXPECTED_SHA: ${{ env.SOURCE_SHA }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Setup Node.js and pnpm
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 9.15.4
+          run_install: false
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Run disposable Kind E2E and collect evidence
+        run: bash scripts/run-kubernetes-plugin-kind-e2e.sh
+
+      - name: Upload disposable-cluster evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: paperclip-kind-e2e-${{ env.SOURCE_SHA }}
+          path: ${{ github.workspace }}/.paperclip-kind-evidence
+          include-hidden-files: true
+          if-no-files-found: error

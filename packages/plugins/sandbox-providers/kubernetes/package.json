@@ -49,6 +49,7 @@
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.0.0",
+    "isomorphic-ws": "^5.0.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
