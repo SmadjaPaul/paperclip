@@ -18,7 +18,11 @@ export function readKindKubeconfig(): string {
 }
 
 export function kubectl(args: string): string {
-  const path = kubeconfigPath().replaceAll("'", "'\\''");
+  return kubectlWithKubeconfig(kubeconfigPath(), args);
+}
+
+export function kubectlWithKubeconfig(file: string, args: string): string {
+  const path = file.replaceAll("'", "'\\''");
   return execSync(
     `kubectl --kubeconfig '${path}' --context '${KIND_CONTEXT}' ${args}`,
     { encoding: "utf-8", env: { ...process.env, KUBECONFIG: path } },

@@ -13,7 +13,12 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKubeConfig, makeKubeClients } from "../../src/kube-client.js";
 import { findPodForSandbox, sandboxCrOrchestrator } from "../../src/sandbox-cr-orchestrator.js";
-import { deleteNamespaceIfExists, kubectl, readKindKubeconfig } from "./_kind-harness.js";
+import {
+  deleteNamespaceIfExists,
+  kubectl,
+  kubectlWithKubeconfig,
+  readKindKubeconfig,
+} from "./_kind-harness.js";
 
 const pluginModule = process.env.K8S_E2E_USE_DIST === "1"
   ? await import("../../dist/index.js")
@@ -226,6 +231,25 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
         const policies = kubectl(`get networkpolicy -n ${NAMESPACE} -o name`);
         expect(policies).toContain("networkpolicy.networking.k8s.io/paperclip-deny-all");
         expect(policies).toContain("networkpolicy.networking.k8s.io/paperclip-egress-allow");
+
+        const execProbe = (actor: string, kubeconfig: string) => {
+          try {
+            const output = kubectlWithKubeconfig(
+              kubeconfig,
+              `auth can-i create pods/exec -n ${NAMESPACE} && exec -n ${NAMESPACE} ${podName} -c agent -- sh -c 'printf direct-exec'`,
+            ).trim();
+            console.log(JSON.stringify({ check: "EXEC_PROBE", actor, ok: true, output }));
+          } catch (error) {
+            console.log(JSON.stringify({
+              check: "EXEC_PROBE",
+              actor,
+              ok: false,
+              error: String(error).slice(0, 500),
+            }));
+          }
+        };
+        execProbe("admin", process.env.KIND_KUBECONFIG!);
+        execProbe("plugin", process.env.PAPERCLIP_PLUGIN_KUBECONFIG!);
 
         const first = await execute(activeLease, cfg, "sh", ["-c", "test -d /workspace && printf first > /workspace/multi.txt"]);
         if (first.timedOut) {
