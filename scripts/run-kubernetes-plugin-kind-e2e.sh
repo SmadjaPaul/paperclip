@@ -159,4 +159,5 @@ jq -n --arg subject "paperclip-kubernetes-kind-e2e:${GITHUB_SHA:-unknown}" --arg
 kubectl --kubeconfig "$KIND_KUBECONFIG" get pods -A -o wide > "$evidence/pods.txt" 2>&1 || true
 kubectl --kubeconfig "$KIND_KUBECONFIG" get sandbox.agents.x-k8s.io -A -o yaml > "$evidence/sandboxes.yaml" 2>&1 || true
 kubectl --kubeconfig "$KIND_KUBECONFIG" get events -A --sort-by=.lastTimestamp > "$evidence/events.txt" 2>&1 || true
+kubectl --kubeconfig "$KIND_KUBECONFIG" logs -n agent-sandbox-system deployment/agent-sandbox-controller --all-containers=true --tail=-1 > "$evidence/agent-sandbox-controller.log" 2>&1 || true
 exit "$e2e_exit"

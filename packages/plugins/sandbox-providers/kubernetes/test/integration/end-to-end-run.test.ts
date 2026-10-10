@@ -155,10 +155,22 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
         const adminClients = makeKubeClients(
           createKubeConfig({ inCluster: false, kubeconfig: readKindKubeconfig() }),
         );
-        await sandboxCrOrchestrator.waitForCompletion(adminClients, NAMESPACE, leaseId, {
-          timeoutMs: 120_000,
-          pollMs: 1_000,
-        });
+        try {
+          await sandboxCrOrchestrator.waitForCompletion(adminClients, NAMESPACE, leaseId, {
+            timeoutMs: 120_000,
+            pollMs: 1_000,
+          });
+        } catch (error) {
+          // Preserve the live controller evidence before the finally block
+          // releases the lease and the suite's afterAll removes the tenant.
+          const diagnostics = {
+            sandbox: kubectl(`get sandbox.agents.x-k8s.io ${leaseId} -n ${NAMESPACE} -o json 2>&1 || true`),
+            pods: kubectl(`get pods -n ${NAMESPACE} -o yaml 2>&1 || true`),
+            events: kubectl(`get events -n ${NAMESPACE} --sort-by=.lastTimestamp 2>&1 || true`),
+          };
+          console.log(JSON.stringify({ check: "READY_DIAGNOSTICS", ...diagnostics }));
+          throw error;
+        }
 
         const readySandbox = jsonFromKubectl(
           `get sandbox.agents.x-k8s.io ${leaseId} -n ${NAMESPACE} -o json`,
