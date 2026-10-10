@@ -142,6 +142,20 @@ async function waitForNoRunScopedResources(runId: string, timeoutMs = 30_000): P
   expect(remaining).toEqual([]);
 }
 
+async function waitForSandboxGone(name: string, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let remaining = kubectl(
+    `get sandbox.agents.x-k8s.io ${name} -n ${NAMESPACE} -o name 2>/dev/null || true`,
+  ).trim();
+  while (remaining.length > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    remaining = kubectl(
+      `get sandbox.agents.x-k8s.io ${name} -n ${NAMESPACE} -o name 2>/dev/null || true`,
+    ).trim();
+  }
+  expect(remaining).toBe("");
+}
+
 describe("plugin-kubernetes v1beta1 Kind runtime", () => {
   beforeAll(() => {
     if (!integrationEnabled()) return;
@@ -356,8 +370,7 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
           environmentId: "env-test-delete",
         });
         await expect(deletingWait).rejects.toThrow();
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
-        expect(kubectl(`get sandbox.agents.x-k8s.io ${deletingId} -n ${NAMESPACE} -o name 2>/dev/null || true`)).toBe("");
+        await waitForSandboxGone(deletingId);
         await waitForNoRunScopedResources("r-test-e2e-delete-during-wait");
         console.log(JSON.stringify({ check: "DELETION_DURING_WAIT", providerLeaseId: deletingId }));
       } finally {
