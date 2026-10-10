@@ -111,7 +111,7 @@ rules:
     verbs: ["get", "list", "create", "delete"]
   - apiGroups: [""]
     resources: ["pods/exec"]
-    verbs: ["create"]
+    verbs: ["get", "create"]
   - apiGroups: [""]
     resources: ["resourcequotas", "limitranges"]
     verbs: ["get", "create"]
@@ -145,6 +145,8 @@ kubectl --kubeconfig "$PAPERCLIP_PLUGIN_KUBECONFIG" config set-context "$context
 kubectl --kubeconfig "$PAPERCLIP_PLUGIN_KUBECONFIG" config use-context "$context" >/dev/null
 kubectl --kubeconfig "$KIND_KUBECONFIG" auth can-i --as=system:serviceaccount:paperclip-system:paperclip-kubernetes-e2e create namespaces
 kubectl --kubeconfig "$KIND_KUBECONFIG" auth can-i --as=system:serviceaccount:paperclip-system:paperclip-kubernetes-e2e create sandboxes.agents.x-k8s.io
+kubectl --kubeconfig "$KIND_KUBECONFIG" auth can-i --as=system:serviceaccount:paperclip-system:paperclip-kubernetes-e2e get pods/exec
+kubectl --kubeconfig "$KIND_KUBECONFIG" auth can-i --as=system:serviceaccount:paperclip-system:paperclip-kubernetes-e2e create pods/exec
 test "$(kubectl --kubeconfig "$KIND_KUBECONFIG" auth can-i --as=system:serviceaccount:paperclip-system:paperclip-kubernetes-e2e delete deployments)" = no
 
 set +e
