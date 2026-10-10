@@ -40,9 +40,23 @@ vi.mock("@kubernetes/client-node", () => {
   return { Exec };
 });
 
-const { execInPod, execInPodStreaming } = await import("../../src/pod-exec.js");
+const { execInPod, execInPodStreaming, normalizeWebSocketMessageData } = await import("../../src/pod-exec.js");
 
 const KC = {} as never;
+
+describe("exec WebSocket frame normalization", () => {
+  it("converts ArrayBuffer and typed-array frames to Buffers", () => {
+    const bytes = new Uint8Array([3, 1, 2]);
+    expect(normalizeWebSocketMessageData(bytes.buffer)).toEqual(Buffer.from(bytes));
+    expect(normalizeWebSocketMessageData(bytes)).toEqual(Buffer.from(bytes));
+  });
+
+  it("preserves text and Buffer frames", () => {
+    const buffer = Buffer.from([3, 1, 2]);
+    expect(normalizeWebSocketMessageData("status")).toBe("status");
+    expect(normalizeWebSocketMessageData(buffer)).toBe(buffer);
+  });
+});
 
 describe("execInPod stdout cap", () => {
   it("fails closed when pod stdout exceeds the cap", async () => {

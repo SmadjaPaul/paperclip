@@ -19,6 +19,8 @@
  */
 
 import { Exec } from "@kubernetes/client-node";
+import { WebSocketHandler } from "@kubernetes/client-node/dist/web-socket-handler.js";
+import WebSocket from "isomorphic-ws";
 import { PassThrough } from "node:stream";
 import type { Readable, Writable } from "node:stream";
 import type { KubeConfig } from "@kubernetes/client-node";
@@ -27,6 +29,52 @@ import type { KubeConfig } from "@kubernetes/client-node";
 // comes from @kubernetes/client-node's transitive ws/isomorphic-ws dep but
 // importing it directly couples this file to that internal choice.
 type WebSocketLike = { close(): void };
+
+/**
+ * Normalize binary WebSocket events before they reach client-node's stream
+ * demultiplexer. The Kubernetes exec protocol uses binary frames, but the
+ * isomorphic-ws adapter is allowed to expose a frame as ArrayBuffer or a typed
+ * array. client-node 1.4.0 only dispatches Buffer frames, so an unnormalized
+ * frame silently produces neither stream data nor the terminal status callback
+ * and the caller eventually hits its watchdog.
+ */
+export function normalizeWebSocketMessageData(data: unknown): unknown {
+  if (typeof data === "string" || Buffer.isBuffer(data)) return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data);
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  }
+  return data;
+}
+
+function createExecWebSocketHandler(kc: KubeConfig): WebSocketHandler {
+  return new WebSocketHandler(kc, (uri, protocols, opts) => {
+    const socket = new WebSocket(uri, protocols, opts);
+    socket.binaryType = "nodebuffer";
+
+    // Keep client-node's authentication, protocol negotiation and frame
+    // demultiplexing, but normalize the event payload at its socket boundary.
+    // The proxy also binds methods because WebSocket methods require their
+    // native instance as `this` when Exec later calls close().
+    return new Proxy(socket, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+      set(target, property, value) {
+        if (property === "onmessage" && typeof value === "function") {
+          return Reflect.set(
+            target,
+            property,
+            (event: { data: unknown }) => value({ ...event, data: normalizeWebSocketMessageData(event.data) }),
+            target,
+          );
+        }
+        return Reflect.set(target, property, value, target);
+      },
+    });
+  });
+}
 
 // Single-quote a string for safe interpolation into a sh -c script. Wraps in
 // '...' and escapes any embedded single quotes via '\'' (close, escape, reopen).
@@ -80,7 +128,7 @@ export async function execInPod(
   // max-string-length `RangeError` can never escape as an uncaught exception.
   maxStderrBytes?: number,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const exec = new Exec(kc);
+  const exec = new Exec(kc, createExecWebSocketHandler(kc));
   const stdoutStream = new PassThrough();
   const stderrStream = new PassThrough();
 
@@ -308,7 +356,7 @@ export async function execInPodStreaming(
     maxStderrBytes?: number;
   },
 ): Promise<{ exitCode: number; stderr: string }> {
-  const exec = new Exec(kc);
+  const exec = new Exec(kc, createExecWebSocketHandler(kc));
   const stdoutStream = new PassThrough();
   const stderrStream = new PassThrough();
   const stdinStream: PassThrough | null = io.stdin ? new PassThrough() : null;
