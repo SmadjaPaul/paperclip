@@ -255,12 +255,29 @@ CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/di
 FROM build AS cloud-plugins
 ARG CLOUD_BUNDLED_PLUGINS="daytona"
 RUN set -eu; \
+  mkdir -p /tmp/paperclip-plugin-deps; \
+  pnpm -C packages/shared pack --pack-destination /tmp/paperclip-plugin-deps >/dev/null; \
+  pnpm -C packages/plugins/sdk pack --pack-destination /tmp/paperclip-plugin-deps >/dev/null; \
+  test -n "$(find /tmp/paperclip-plugin-deps -maxdepth 1 -name 'paperclipai-shared-*.tgz' -print -quit)"; \
+  test -n "$(find /tmp/paperclip-plugin-deps -maxdepth 1 -name 'paperclipai-plugin-sdk-*.tgz' -print -quit)"
+RUN set -eu; \
+  sharedTar="$(find /tmp/paperclip-plugin-deps -maxdepth 1 -name 'paperclipai-shared-*.tgz' -print -quit)"; \
+  sdkTar="$(find /tmp/paperclip-plugin-deps -maxdepth 1 -name 'paperclipai-plugin-sdk-*.tgz' -print -quit)"; \
   for name in $CLOUD_BUNDLED_PLUGINS; do \
     dir="packages/plugins/sandbox-providers/$name"; \
     test -d "$dir" || { echo "ERROR: unknown sandbox provider '$name'" >&2; exit 1; }; \
+    # The root postinstall links the development SDK into excluded plugins.
+    # Replace that link with the exact locally packed SDK and shared runtime
+    # packages so the final image never resolves TypeScript workspace sources
+    # or attempts an npm install at startup.
     pnpm -C "$dir" install --ignore-workspace --no-lockfile; \
+    rm -rf "$dir/node_modules/@paperclipai/plugin-sdk"; \
+    pnpm -C "$dir" add --save-prod --ignore-workspace --no-lockfile "$sharedTar" "$sdkTar"; \
+    node -e 'const fs=require("node:fs"); const path=require("node:path"); const pluginDir=process.argv[1]; const sdkRoot=fs.realpathSync(path.join(pluginDir,"node_modules/@paperclipai/plugin-sdk")); const sharedRoot=fs.realpathSync(path.join(pluginDir,"node_modules/@paperclipai/shared")); const sdkShared=path.join(sdkRoot,"node_modules/@paperclipai/shared"); fs.rmSync(sdkShared,{recursive:true,force:true}); fs.mkdirSync(path.dirname(sdkShared),{recursive:true}); fs.cpSync(sharedRoot,sdkShared,{recursive:true});' "$dir"; \
     pnpm -C "$dir" build; \
     test -f "$dir/dist/manifest.js" || { echo "ERROR: $dir is missing dist/manifest.js after build" >&2; exit 1; }; \
+    test -f "$dir/node_modules/@paperclipai/plugin-sdk/dist/index.js" || { echo "ERROR: $dir is missing the packaged SDK runtime" >&2; exit 1; }; \
+    test -f "$dir/node_modules/@paperclipai/shared/dist/index.js" || { echo "ERROR: $dir is missing the packaged shared runtime" >&2; exit 1; }; \
   done
 
 # The hosted image variant ships selected optional peer packages

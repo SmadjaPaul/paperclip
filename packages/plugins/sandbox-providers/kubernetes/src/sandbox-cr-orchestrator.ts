@@ -175,6 +175,14 @@ function mapSandboxPhase(
   }
 }
 
+function sandboxFailureMessage(
+  namespace: string,
+  name: string,
+  status: SandboxStatus,
+): string {
+  return `Sandbox ${namespace}/${name} failed: ${status.reason ?? "unknown reason"} — ${status.message ?? ""}`;
+}
+
 export async function createSandboxCr(
   clients: KubeClients,
   namespace: string,
@@ -350,24 +358,18 @@ export async function waitForSandboxReady(
     if (typeof metadata.deletionTimestamp === "string" && metadata.deletionTimestamp.length > 0) {
       throw new Error(`Sandbox ${namespace}/${name} is being deleted — cannot wait for Ready`);
     }
-    const status = (cr.status as Record<string, unknown>) ?? {};
-    // Agent Sandbox v1beta1 uses status.conditions[type=Ready,status=True],
-    // not status.phase. Fall back to phase for older/mocked responses.
-    const conditions = Array.isArray(status.conditions) ? status.conditions as Array<Record<string, unknown>> : [];
-    const readyCondition = conditions.find((c) => c.type === "Ready");
-    const failedCondition = conditions.find((c) => c.type === "Failed" || (c.type === "Ready" && c.status === "False" && typeof c.reason === "string" && /failed/i.test(c.reason)));
-    const phase = (status.phase as string) ?? "";
-
-    if (readyCondition?.status === "True" || phase === "Ready") {
-      return mapSandboxPhase(cr);
+    // Use the exact same condition ordering and generation filtering as
+    // getSandboxCrStatus(). A current terminal condition must win over Ready;
+    // otherwise this loop can return a Failed status that callers interpret as
+    // successful readiness and then exec into a dead pod.
+    const mapped = mapSandboxPhase(cr);
+    if (mapped.phase === "Failed") {
+      throw new Error(sandboxFailureMessage(namespace, name, mapped));
     }
-    if (failedCondition?.status === "True" || phase === "Failed") {
-      const mapped = mapSandboxPhase(cr);
-      throw new Error(
-        `Sandbox ${namespace}/${name} failed: ${mapped.reason ?? (failedCondition?.reason as string) ?? "unknown reason"} — ${mapped.message ?? (failedCondition?.message as string) ?? ""}`,
-      );
+    if (mapped.phase === "Running" && mapped.reason !== "Terminating") {
+      return mapped;
     }
-    if (phase === "Terminating") {
+    if (mapped.reason === "Terminating") {
       // A Sandbox being torn down will never transition to Ready. Polling
       // until the deadline would burn the full timeoutMs (potentially
       // 30+ minutes) before throwing a generic timeout. Fail fast instead

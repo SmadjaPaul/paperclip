@@ -315,6 +315,66 @@ describe("waitForSandboxReady", () => {
     expect(get).toHaveBeenCalledTimes(3);
   });
 
+  it("fails before returning when Ready and Finished are both current", async () => {
+    const get = vi.fn().mockResolvedValue({
+      metadata: { uid: "u1", generation: 2 },
+      status: {
+        conditions: [
+          { type: "Ready", status: "True", observedGeneration: 2 },
+          { type: "Finished", status: "True", reason: "PodSucceeded", observedGeneration: 2 },
+        ],
+      },
+    });
+    await expect(
+      waitForSandboxReady({ custom: { getNamespacedCustomObject: get } } as never, "ns", "pc-abc", {
+        timeoutMs: 5000,
+        pollMs: 10,
+      }),
+    ).rejects.toThrow(/failed.*PodSucceeded/i);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["InvalidConfiguration", "SandboxExpired"])(
+    "fails before returning when Ready and %s are both current",
+    async (terminalType) => {
+      const get = vi.fn().mockResolvedValue({
+        metadata: { uid: "u1", generation: 4 },
+        status: {
+          conditions: [
+            { type: "Ready", status: "True", observedGeneration: 4 },
+            { type: terminalType, status: "True", observedGeneration: 4 },
+          ],
+        },
+      });
+      await expect(
+        waitForSandboxReady({ custom: { getNamespacedCustomObject: get } } as never, "ns", "pc-abc", {
+          timeoutMs: 5000,
+          pollMs: 10,
+        }),
+      ).rejects.toThrow(/failed/i);
+      expect(get).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("ignores an obsolete terminal condition and waits for the current Ready condition", async () => {
+    const get = vi.fn().mockResolvedValue({
+      metadata: { uid: "u1", generation: 2 },
+      status: {
+        conditions: [
+          { type: "Finished", status: "True", reason: "PodFailed", observedGeneration: 1 },
+          { type: "Ready", status: "True", observedGeneration: 2 },
+        ],
+      },
+    });
+    const status = await waitForSandboxReady(
+      { custom: { getNamespacedCustomObject: get } } as never,
+      "ns",
+      "pc-abc",
+      { timeoutMs: 5000, pollMs: 10 },
+    );
+    expect(status).toMatchObject({ phase: "Running", active: 1, failed: 0 });
+  });
+
   it("throws SandboxCrTimeoutError when deadline is exceeded", async () => {
     const get = vi.fn().mockResolvedValue(makeCr("Pending"));
     const clients = { custom: { getNamespacedCustomObject: get } };

@@ -282,6 +282,46 @@ describe("destroyLeaseResources", () => {
     expect(clients.batch.deleteNamespacedJob).not.toHaveBeenCalled();
   });
 
+  it("still cleans every per-run resource after readiness has failed", async () => {
+    const clients = makeClients();
+    const failedSandbox = {
+      metadata: { uid: "uid-1", generation: 3 },
+      status: {
+        conditions: [
+          { type: "Ready", status: "True", observedGeneration: 3 },
+          { type: "Finished", status: "True", reason: "PodFailed", observedGeneration: 3 },
+        ],
+      },
+    };
+
+    const resumable = await checkLeaseResumable(
+      {
+        custom: { getNamespacedCustomObject: vi.fn().mockResolvedValue(failedSandbox) },
+        core: clients.core,
+      } as never,
+      {
+        namespace: "paperclip-acme",
+        name: "pc-abc",
+        backend: "sandbox-cr",
+        readyTimeoutMs: 1000,
+        pollMs: 10,
+      },
+    );
+    expect(resumable).toMatchObject({ resumable: false });
+
+    await destroyLeaseResources(clients as never, {
+      namespace: "paperclip-acme",
+      name: "pc-abc",
+      backend: "sandbox-cr",
+      podName: "pc-abc-pod",
+      secretName: "pc-abc-env",
+    });
+
+    expect(clients.custom.deleteNamespacedCustomObject).toHaveBeenCalledOnce();
+    expect(clients.core.deleteNamespacedPod).toHaveBeenCalledOnce();
+    expect(clients.core.deleteNamespacedSecret).toHaveBeenCalledOnce();
+  });
+
   it("deletes the Job instead of the Sandbox CR (job backend)", async () => {
     const clients = makeClients();
     await destroyLeaseResources(clients as never, {
