@@ -273,6 +273,8 @@ export function environmentRunOrchestrator(
     agentId: string;
     persistedExecutionWorkspace: Pick<ExecutionWorkspace, "id" | "mode"> | null;
     executionWorkspaceSettings: IssueExecutionWorkspaceSettings | null;
+    /** Existing live runner recovery must use its original active lease, including ephemeral leases. */
+    reattachRemoteLease?: { leaseId: string; providerLeaseId: string; remoteCwd: string };
   }): Promise<EnvironmentAcquisitionResult> {
     // Step 1: Resolve environment
     const selectedEnvironment = await resolveEnvironment({
@@ -286,7 +288,7 @@ export function environmentRunOrchestrator(
     );
 
     // Step 2: Acquire lease
-    const leaseRecord = await acquireLease({
+    const acquisitionInput = {
       companyId: input.companyId,
       environment,
       issueId: input.issueId,
@@ -295,7 +297,29 @@ export function environmentRunOrchestrator(
       persistedExecutionWorkspace: input.persistedExecutionWorkspace,
       executionWorkspaceSettings: input.executionWorkspaceSettings,
       adapterType: input.adapterType ?? null,
-    });
+    };
+    let leaseRecord: EnvironmentRuntimeLeaseRecord;
+    if (input.reattachRemoteLease) {
+      // Reattachment is inspection of an already running sandbox, never a new
+      // acquisition or a lifecycle resume. Those paths can create a replacement
+      // when the admitted per-turn policy deliberately disables reusable leases.
+      const expected = input.reattachRemoteLease;
+      const lease = await environmentsSvc.getLeaseById(expected.leaseId);
+      if (!lease || environment.driver !== "sandbox" ||
+          lease.companyId !== input.companyId || lease.environmentId !== environment.id ||
+          lease.heartbeatRunId !== input.heartbeatRunId || lease.issueId !== input.issueId ||
+          lease.executionWorkspaceId !== (input.persistedExecutionWorkspace?.id ?? null) ||
+          lease.metadata?.agentId !== input.agentId || lease.status !== "active" ||
+          lease.releasedAt !== null || lease.cleanupStatus !== null ||
+          (lease.expiresAt !== null && new Date(lease.expiresAt).getTime() <= Date.now()) ||
+          lease.provider !== environment.config.provider || lease.providerLeaseId !== expected.providerLeaseId ||
+          lease.metadata?.remoteCwd !== expected.remoteCwd) {
+        throw new Error("native_remote_recovery_lease_mismatch");
+      }
+      leaseRecord = { environment, lease, leaseContext: buildEnvironmentLeaseContext(input) };
+    } else {
+      leaseRecord = await acquireLease(acquisitionInput);
+    }
 
     // Step 3: Log lease acquisition activity
     await logActivity(db, {
@@ -492,16 +516,29 @@ export function environmentRunOrchestrator(
     }
 
     // Step 3: Persist realization metadata on lease and execution workspace
-    if (Object.keys(workspaceRealization).length > 0) {
+    const hasWorkspaceRealization = Object.keys(workspaceRealization).length > 0;
+    // A driver that realizes the workspace reports the directory it prepared
+    // through the realization `cwd`. Persist it on the lease as `remoteCwd`, so
+    // every later step that receives only the lease — native file sync, a
+    // resumed lease, a second run against the same lease — confines itself to
+    // the same root. Without it a driver whose realization returns no
+    // `workspaceRealization` payload leaves the lease without a root at all,
+    // and the sync step fails even though realization succeeded.
+    const currentRemoteCwd =
+      typeof lease.metadata?.remoteCwd === "string" ? lease.metadata.remoteCwd.trim() : "";
+    const realizedRemoteCwd =
+      realizedWorkspaceCwd && realizedWorkspaceCwd !== currentRemoteCwd ? realizedWorkspaceCwd : null;
+    if (hasWorkspaceRealization || realizedRemoteCwd) {
       const nextLeaseMetadata = {
         ...(lease.metadata ?? {}),
-        workspaceRealization,
+        ...(hasWorkspaceRealization ? { workspaceRealization } : {}),
+        ...(realizedRemoteCwd ? { remoteCwd: realizedRemoteCwd } : {}),
       };
       const updatedLease = await environmentsSvc.updateLeaseMetadata(lease.id, nextLeaseMetadata);
       if (updatedLease) {
         lease = updatedLease;
       }
-      if (persistedExecutionWorkspace) {
+      if (hasWorkspaceRealization && persistedExecutionWorkspace) {
         const updatedEw = await executionWorkspacesSvc.update(persistedExecutionWorkspace.id, {
           metadata: {
             ...(persistedExecutionWorkspace.metadata ?? {}),

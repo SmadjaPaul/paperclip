@@ -282,6 +282,7 @@ export function selectEnvironmentExecutionWorkspaceSettings(
 }
 
 export type ExecutionWorkspaceEnvironmentSource =
+  | "issue"
   | "agent"
   | "instance"
   | "default"
@@ -304,6 +305,8 @@ export class ManagedSandboxUnavailableError extends Error {
 }
 
 export function resolveExecutionWorkspaceEnvironmentId(input: {
+  /** Explicit operator-selected sandbox for a task with a low-trust boundary. */
+  lowTrustIssueEnvironmentId?: string | null;
   agentDefaultEnvironmentId: string | null;
   instanceDefaultEnvironmentId: string | null;
   localDefaultEnvironmentId: string;
@@ -319,6 +322,9 @@ export function resolveExecutionWorkspaceEnvironmentId(input: {
   managedSandboxEnvironmentId?: string | null;
 }): ExecutionWorkspaceEnvironmentResolution {
   const resolved = ((): ExecutionWorkspaceEnvironmentResolution => {
+    if (input.lowTrustIssueEnvironmentId) {
+      return {environmentId: input.lowTrustIssueEnvironmentId, source: "issue"};
+    }
     if (input.agentDefaultEnvironmentId) {
       return {
         environmentId: input.agentDefaultEnvironmentId,
