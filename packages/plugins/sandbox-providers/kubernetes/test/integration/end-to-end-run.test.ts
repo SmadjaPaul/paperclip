@@ -234,11 +234,17 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
 
         const execProbe = (actor: string, kubeconfig: string) => {
           try {
-            const output = kubectlWithKubeconfig(
+            const canGet = kubectlWithKubeconfig(kubeconfig, `auth can-i get pods/exec -n ${NAMESPACE}`, 10_000).trim();
+            const canCreate = kubectlWithKubeconfig(kubeconfig, `auth can-i create pods/exec -n ${NAMESPACE}`, 10_000).trim();
+            if (canGet !== "yes" || canCreate !== "yes") {
+              throw new Error(`pods/exec RBAC get=${canGet} create=${canCreate}`);
+            }
+            const directExec = kubectlWithKubeconfig(
               kubeconfig,
-              `auth can-i get pods/exec -n ${NAMESPACE} && auth can-i create pods/exec -n ${NAMESPACE} && kubectl --kubeconfig '${kubeconfig.replaceAll("'", "'\\''")}' --context '${process.env.KIND_CONTEXT ?? "kind-paperclip-e2e"}' exec -n ${NAMESPACE} ${podName} -c agent -- sh -c 'printf direct-exec'`,
+              `exec -n ${NAMESPACE} ${podName} -c agent -- sh -c 'printf direct-exec'`,
               10_000,
             ).trim();
+            const output = `${canGet}\n${canCreate}\n${directExec}`;
             console.log(JSON.stringify({ check: "EXEC_PROBE", actor, ok: true, output }));
           } catch (error) {
             console.log(JSON.stringify({
@@ -351,7 +357,7 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
         });
         await expect(deletingWait).rejects.toThrow();
         await new Promise((resolve) => setTimeout(resolve, 1_000));
-        expect(kubectl(`get sandbox.agents.x-k8s.io ${deletingId} -n ${NAMESPACE} 2>&1 || true`)).not.toContain(deletingId);
+        expect(kubectl(`get sandbox.agents.x-k8s.io ${deletingId} -n ${NAMESPACE} -o name 2>/dev/null || true`)).toBe("");
         await waitForNoRunScopedResources("r-test-e2e-delete-during-wait");
         console.log(JSON.stringify({ check: "DELETION_DURING_WAIT", providerLeaseId: deletingId }));
       } finally {
