@@ -20,20 +20,19 @@ concurrency:
   group: kubernetes-plugin-kind-e2e-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-env:
-  KIND_CLUSTER: paperclip-e2e
-  KIND_CONTEXT: kind-paperclip-e2e
-  KIND_KUBECONFIG: ${{ runner.temp }}/paperclip-kind.kubeconfig
-  PAPERCLIP_PLUGIN_KUBECONFIG: ${{ runner.temp }}/paperclip-plugin.kubeconfig
-  KUBECONFIG: ${{ runner.temp }}/paperclip-kind.kubeconfig
-  OPENCODE_IMAGE: ghcr.io/paperclipai/agent-runtime-opencode@sha256:349fc68e609998f1d9fc77f94208d50263368b49631f746a51f819917d9b0d2d
-  AGENT_SANDBOX_MANIFEST_SHA256: b150cb058c577c59c42b060ff7f22e31b5311ca80430db98129f1280a0e85970
-
 jobs:
   kind-e2e:
     name: Ephemeral Kind runtime
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      KIND_CLUSTER: paperclip-e2e
+      KIND_CONTEXT: kind-paperclip-e2e
+      KIND_KUBECONFIG: ${{ runner.temp }}/paperclip-kind.kubeconfig
+      PAPERCLIP_PLUGIN_KUBECONFIG: ${{ runner.temp }}/paperclip-plugin.kubeconfig
+      KUBECONFIG: ${{ runner.temp }}/paperclip-kind.kubeconfig
+      OPENCODE_IMAGE: ghcr.io/paperclipai/agent-runtime-opencode@sha256:349fc68e609998f1d9fc77f94208d50263368b49631f746a51f819917d9b0d2d
+      AGENT_SANDBOX_MANIFEST_SHA256: b150cb058c577c59c42b060ff7f22e31b5311ca80430db98129f1280a0e85970
     steps:
       - name: Checkout exact pull request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
