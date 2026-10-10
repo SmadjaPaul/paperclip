@@ -12,9 +12,13 @@ on:
       - scripts/link-plugin-dev-sdk.mjs
       - scripts/verify-kubernetes-plugin-image.mjs
       - .github/workflows/kubernetes-plugin-image.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 concurrency:
   group: kubernetes-plugin-image-${{ github.event.pull_request.number }}
@@ -29,13 +33,13 @@ jobs:
       - name: Checkout exact pull request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 1
           persist-credentials: false
 
       - name: Verify exact source revision
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ env.SOURCE_SHA }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Set up Buildx
@@ -50,18 +54,18 @@ jobs:
           push: false
           load: true
           provenance: false
-          tags: paperclip-kubernetes-candidate:${{ github.event.pull_request.head.sha }}
+          tags: paperclip-kubernetes-candidate:${{ env.SOURCE_SHA }}
           build-args: |
             CLOUD_BUNDLED_PLUGINS=kubernetes
             CLOUD_BUNDLED_SERVER_DEPS=@sentry/node
-            PAPERCLIP_BUILD_COMMIT=${{ github.event.pull_request.head.sha }}
-            PAPERCLIP_BUILD_VERSION=0.0.0-kubernetes-candidate.g${{ github.event.pull_request.head.sha }}
+            PAPERCLIP_BUILD_COMMIT=${{ env.SOURCE_SHA }}
+            PAPERCLIP_BUILD_VERSION=0.0.0-kubernetes-candidate.g${{ env.SOURCE_SHA }}
             CLI_TOOLS_CACHE_EPOCH=${{ github.run_id }}
 
       - name: Verify bundled plugin and runtime module resolution
         env:
-          IMAGE: paperclip-kubernetes-candidate:${{ github.event.pull_request.head.sha }}
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          IMAGE: paperclip-kubernetes-candidate:${{ env.SOURCE_SHA }}
+          EXPECTED_SHA: ${{ env.SOURCE_SHA }}
         run: |
           docker run --rm \
             --entrypoint node \
@@ -84,13 +88,13 @@ jobs:
       - name: Checkout exact pull request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 1
           persist-credentials: false
 
       - name: Verify exact source revision
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ env.SOURCE_SHA }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Setup Node.js and pnpm
@@ -114,6 +118,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: paperclip-kind-e2e-${{ github.event.pull_request.head.sha }}
+          name: paperclip-kind-e2e-${{ env.SOURCE_SHA }}
           path: ${{ runner.temp }}/paperclip-kind-evidence
           if-no-files-found: error
