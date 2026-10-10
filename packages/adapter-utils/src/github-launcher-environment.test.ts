@@ -94,6 +94,7 @@ describe("managed GitHub launcher environment", () => {
 
     expect(env.PAPERCLIP_GITHUB_AUTH_MODE).toBe("managed");
     expect(env.PAPERCLIP_RUNNER_NETWORK_ACCESS).toBe("enabled");
+  });
 
   // The Daytona native directory oracle uses Linux inotify. Run its real
   // filesystem regression on that platform; shell/launcher tests cover both.
