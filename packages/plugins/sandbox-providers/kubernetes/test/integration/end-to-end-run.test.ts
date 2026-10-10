@@ -209,7 +209,7 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
           "const https=require('https'); const r=https.get('https://kubernetes.default.svc/version',{rejectUnauthorized:false,timeout:1500},()=>process.exit(0)); r.on('error',()=>process.exit(42)); r.on('timeout',()=>{r.destroy();process.exit(43)});",
         ], 8_000);
         expect(network.exitCode).not.toBe(0);
-        console.log(JSON.stringify({ check: "NETWORK_ISOLATION", exitCode: network.exitCode, timedOut: network.timedOut }));
+        console.log(JSON.stringify({ check: "NETWORK_ISOLATION", dnsExitCode: dnsProbe.exitCode, deniedExitCode: network.exitCode, timedOut: network.timedOut }));
 
         const hostDir = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-k8s-e2e-"));
         try {
