@@ -7,7 +7,7 @@ set -euo pipefail
 
 cluster="${KIND_CLUSTER:-paperclip-e2e}"
 context="${KIND_CONTEXT:-kind-paperclip-e2e}"
-evidence="$RUNNER_TEMP/paperclip-kind-evidence"
+evidence="${GITHUB_WORKSPACE:-$RUNNER_TEMP}/.paperclip-kind-evidence"
 mkdir -p "$evidence"
 
 cleanup() {
@@ -18,6 +18,9 @@ trap cleanup EXIT
 
 deps="$RUNNER_TEMP/paperclip-plugin-deps"
 mkdir -p "$deps"
+pnpm --filter @paperclipai/plugin-sdk ensure-build-deps
+pnpm --filter @paperclipai/shared build
+pnpm --filter @paperclipai/plugin-sdk build
 pnpm -C packages/shared pack --pack-destination "$deps" >/dev/null
 pnpm -C packages/plugins/sdk pack --pack-destination "$deps" >/dev/null
 shared_tar="$(find "$deps" -maxdepth 1 -name 'paperclipai-shared-*.tgz' -print -quit)"
