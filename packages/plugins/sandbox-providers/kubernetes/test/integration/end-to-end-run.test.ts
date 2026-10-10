@@ -236,7 +236,7 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
           try {
             const output = kubectlWithKubeconfig(
               kubeconfig,
-              `auth can-i create pods/exec -n ${NAMESPACE} && exec -n ${NAMESPACE} ${podName} -c agent -- sh -c 'printf direct-exec'`,
+              `auth can-i create pods/exec -n ${NAMESPACE} && kubectl --kubeconfig '${kubeconfig.replaceAll("'", "'\\''")}' --context '${process.env.KIND_CONTEXT ?? "kind-paperclip-e2e"}' exec -n ${NAMESPACE} ${podName} -c agent -- sh -c 'printf direct-exec'`,
               10_000,
             ).trim();
             console.log(JSON.stringify({ check: "EXEC_PROBE", actor, ok: true, output }));
