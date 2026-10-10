@@ -98,6 +98,35 @@ function listRunScopedResources(runId: string): string[] {
     .filter((line) => /^(pod|secret|sandbox|networkpolicy)(\.|\/)/.test(line));
 }
 
+function captureSandboxDiagnostics(name: string): void {
+  const sandbox = kubectl(
+    `get sandbox.agents.x-k8s.io ${name} -n ${NAMESPACE} -o json 2>&1 || true`,
+  );
+  let generation: number | null = null;
+  let conditions: unknown[] = [];
+  try {
+    const parsed = JSON.parse(sandbox) as {
+      metadata?: { generation?: number };
+      status?: { conditions?: unknown[] };
+    };
+    generation = parsed.metadata?.generation ?? null;
+    conditions = parsed.status?.conditions ?? [];
+  } catch {
+    // Keep the raw kubectl output in the diagnostic record.
+  }
+  console.log(JSON.stringify({
+    check: "READY_DIAGNOSTICS",
+    sandbox,
+    generation,
+    conditions,
+    podDescribe: kubectl(`describe pods -n ${NAMESPACE} 2>&1 || true`),
+    events: kubectl(`get events -n ${NAMESPACE} --sort-by=.lastTimestamp 2>&1 || true`),
+    controllerLogs: kubectl(
+      "logs -n agent-sandbox-system deployment/agent-sandbox-controller --all-containers=true --tail=-1 2>&1 || true",
+    ),
+  }));
+}
+
 async function waitForNoRunScopedResources(runId: string, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let remaining = listRunScopedResources(runId);
@@ -172,32 +201,7 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
         } catch (error) {
           // Preserve the live controller evidence before the finally block
           // releases the lease and the suite's afterAll removes the tenant.
-          const sandbox = kubectl(
-            `get sandbox.agents.x-k8s.io ${leaseId} -n ${NAMESPACE} -o json 2>&1 || true`,
-          );
-          let generation: number | null = null;
-          let conditions: unknown[] = [];
-          try {
-            const parsed = JSON.parse(sandbox) as {
-              metadata?: { generation?: number };
-              status?: { conditions?: unknown[] };
-            };
-            generation = parsed.metadata?.generation ?? null;
-            conditions = parsed.status?.conditions ?? [];
-          } catch {
-            // Keep the raw kubectl output in the diagnostic record.
-          }
-          const diagnostics = {
-            sandbox,
-            generation,
-            conditions,
-            podDescribe: kubectl(`describe pods -n ${NAMESPACE} 2>&1 || true`),
-            events: kubectl(`get events -n ${NAMESPACE} --sort-by=.lastTimestamp 2>&1 || true`),
-            controllerLogs: kubectl(
-              "logs -n agent-sandbox-system deployment/agent-sandbox-controller --all-containers=true --tail=-1 2>&1 || true",
-            ),
-          };
-          console.log(JSON.stringify({ check: "READY_DIAGNOSTICS", ...diagnostics }));
+          captureSandboxDiagnostics(leaseId);
           throw error;
         }
 
@@ -224,6 +228,10 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
         expect(policies).toContain("networkpolicy.networking.k8s.io/paperclip-egress-allow");
 
         const first = await execute(activeLease, cfg, "sh", ["-c", "test -d /workspace && printf first > /workspace/multi.txt"]);
+        if (first.timedOut) {
+          console.log(JSON.stringify({ check: "EXEC_TIMEOUT", result: first }));
+          captureSandboxDiagnostics(leaseId);
+        }
         expect(first).toMatchObject({ exitCode: 0, timedOut: false });
         const second = await execute(activeLease, cfg, "cat", ["/workspace/multi.txt"]);
         expect(second).toMatchObject({ exitCode: 0, stdout: "first" });
