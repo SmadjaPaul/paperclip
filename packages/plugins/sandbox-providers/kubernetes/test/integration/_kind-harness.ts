@@ -21,11 +21,15 @@ export function kubectl(args: string): string {
   return kubectlWithKubeconfig(kubeconfigPath(), args);
 }
 
-export function kubectlWithKubeconfig(file: string, args: string): string {
+export function kubectlWithKubeconfig(file: string, args: string, timeoutMs?: number): string {
   const path = file.replaceAll("'", "'\\''");
   return execSync(
     `kubectl --kubeconfig '${path}' --context '${KIND_CONTEXT}' ${args}`,
-    { encoding: "utf-8", env: { ...process.env, KUBECONFIG: path } },
+    {
+      encoding: "utf-8",
+      env: { ...process.env, KUBECONFIG: path },
+      ...(timeoutMs ? { timeout: timeoutMs } : {}),
+    },
   );
 }
 
