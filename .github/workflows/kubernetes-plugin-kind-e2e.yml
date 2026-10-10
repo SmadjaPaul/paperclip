@@ -1,0 +1,286 @@
+name: Kubernetes plugin Kind E2E
+
+on:
+  pull_request:
+    paths:
+      - packages/plugins/sandbox-providers/kubernetes/**
+      - packages/plugins/sdk/**
+      - packages/shared/**
+      - scripts/generate-plugin-package-json.mjs
+      - scripts/link-plugin-dev-sdk.mjs
+      - .github/workflows/kubernetes-plugin-kind-e2e.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kubernetes-plugin-kind-e2e-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  KIND_CLUSTER: paperclip-e2e
+  KIND_CONTEXT: kind-paperclip-e2e
+  KIND_KUBECONFIG: ${{ runner.temp }}/paperclip-kind.kubeconfig
+  PAPERCLIP_PLUGIN_KUBECONFIG: ${{ runner.temp }}/paperclip-plugin.kubeconfig
+  KUBECONFIG: ${{ runner.temp }}/paperclip-kind.kubeconfig
+  OPENCODE_IMAGE: ghcr.io/paperclipai/agent-runtime-opencode@sha256:349fc68e609998f1d9fc77f94208d50263368b49631f746a51f819917d9b0d2d
+  AGENT_SANDBOX_MANIFEST_SHA256: b150cb058c577c59c42b060ff7f22e31b5311ca80430db98129f1280a0e85970
+
+jobs:
+  kind-e2e:
+    name: Ephemeral Kind runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact source revision
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 9.15.4
+          run_install: false
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build SDK and shared packages from local sources
+        run: |
+          pnpm --filter @paperclipai/plugin-sdk ensure-build-deps
+          pnpm --filter @paperclipai/shared build
+          pnpm --filter @paperclipai/plugin-sdk build
+
+      - name: Build the plugin with the official standalone packaging procedure
+        run: |
+          set -euo pipefail
+          deps="$RUNNER_TEMP/paperclip-plugin-deps"
+          mkdir -p "$deps"
+          pnpm -C packages/shared pack --pack-destination "$deps" >/dev/null
+          pnpm -C packages/plugins/sdk pack --pack-destination "$deps" >/dev/null
+          shared_tar="$(find "$deps" -maxdepth 1 -name 'paperclipai-shared-*.tgz' -print -quit)"
+          sdk_tar="$(find "$deps" -maxdepth 1 -name 'paperclipai-plugin-sdk-*.tgz' -print -quit)"
+          test -n "$shared_tar"
+          test -n "$sdk_tar"
+          pnpm -C packages/plugins/sandbox-providers/kubernetes install --ignore-workspace --no-lockfile
+          pnpm -C packages/plugins/sandbox-providers/kubernetes add --save-prod --ignore-workspace --no-lockfile "$shared_tar" "$sdk_tar"
+          sdk_root="$(realpath packages/plugins/sandbox-providers/kubernetes/node_modules/@paperclipai/plugin-sdk)"
+          shared_root="$(realpath packages/plugins/sandbox-providers/kubernetes/node_modules/@paperclipai/shared)"
+          sdk_shared="$sdk_root/node_modules/@paperclipai/shared"
+          rm -rf "$sdk_shared"
+          mkdir -p "$(dirname "$sdk_shared")"
+          cp -R "$shared_root" "$sdk_shared"
+          test "$(node -p "require('./packages/plugins/sandbox-providers/kubernetes/node_modules/@paperclipai/plugin-sdk/package.json').version")" = "$(node -p "require('./packages/plugins/sdk/package.json').version")"
+          pnpm -C packages/plugins/sandbox-providers/kubernetes build
+          test -f packages/plugins/sandbox-providers/kubernetes/dist/manifest.js
+          test -f packages/plugins/sandbox-providers/kubernetes/dist/worker.js
+          test -f packages/plugins/sandbox-providers/kubernetes/node_modules/@paperclipai/plugin-sdk/dist/index.js
+
+      - name: Install pinned Kind binary
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/kind" https://github.com/kubernetes-sigs/kind/releases/download/v0.29.0/kind-linux-amd64
+          echo 'c72eda46430f065fb45c5f70e7c957cc9209402ef309294821978677c8fb3284  kind' | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/kind"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Create isolated Kind cluster
+        run: |
+          cat > "$RUNNER_TEMP/kind-config.yaml" <<'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            disableDefaultCNI: true
+            kubeProxyMode: none
+          nodes:
+            - role: control-plane
+            - role: worker
+          EOF
+          kind create cluster --name "$KIND_CLUSTER" --config "$RUNNER_TEMP/kind-config.yaml" --kubeconfig "$KIND_KUBECONFIG" --wait 180s
+          kubectl --kubeconfig "$KIND_KUBECONFIG" config use-context "$KIND_CONTEXT"
+
+      - name: Install Cilium for real NetworkPolicy enforcement
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/cilium.tar.gz" https://github.com/cilium/cilium-cli/releases/download/v0.18.5/cilium-linux-amd64.tar.gz
+          echo 'e63893745b67f58032d9b4f142ae7d6e97286df66af27ff24cd72dc81efc9ff9  cilium.tar.gz' | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/cilium.tar.gz" -C "$RUNNER_TEMP"
+          cilium install --version 1.17.6 --set kubeProxyReplacement=true
+          cilium status --wait --wait-duration 5m
+
+      - name: Install Agent Sandbox v1.0.5 and verify v1beta1
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/sandbox-with-extensions.yaml" https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox-with-extensions.yaml
+          echo "${AGENT_SANDBOX_MANIFEST_SHA256}  $RUNNER_TEMP/sandbox-with-extensions.yaml" | sha256sum -c -
+          kubectl --kubeconfig "$KIND_KUBECONFIG" apply -f "$RUNNER_TEMP/sandbox-with-extensions.yaml"
+          kubectl --kubeconfig "$KIND_KUBECONFIG" wait --for=condition=Established crd/sandboxes.agents.x-k8s.io --timeout=120s
+          kubectl --kubeconfig "$KIND_KUBECONFIG" rollout status deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=180s
+          test "$(kubectl --kubeconfig "$KIND_KUBECONFIG" get crd sandboxes.agents.x-k8s.io -o jsonpath='{.spec.versions[?(@.name=="v1beta1")].served}')" = true
+
+      - name: Load the immutable OpenCode runtime image
+        run: |
+          set -euo pipefail
+          docker pull "$OPENCODE_IMAGE"
+          docker image inspect "$OPENCODE_IMAGE" --format '{{range .RepoDigests}}{{println .}}{{end}}' | grep -Fx "$OPENCODE_IMAGE"
+          test "$(docker image inspect "$OPENCODE_IMAGE" --format '{{.Architecture}}')" = amd64
+          kind load docker-image "$OPENCODE_IMAGE" --name "$KIND_CLUSTER"
+
+      - name: Create the least-privilege plugin identity
+        run: |
+          kubectl --kubeconfig "$KIND_KUBECONFIG" apply -f - <<'EOF'
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: paperclip-system
+          ---
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: paperclip-kubernetes-e2e
+            namespace: paperclip-system
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: paperclip-kubernetes-e2e
+          rules:
+            - apiGroups: [""]
+              resources: ["namespaces"]
+              verbs: ["get", "create"]
+            - apiGroups: [""]
+              resources: ["serviceaccounts", "secrets", "pods", "pods/log"]
+              verbs: ["get", "list", "create", "delete"]
+            - apiGroups: [""]
+              resources: ["pods/exec"]
+              verbs: ["create"]
+            - apiGroups: [""]
+              resources: ["resourcequotas", "limitranges"]
+              verbs: ["get", "create"]
+            - apiGroups: ["rbac.authorization.k8s.io"]
+              resources: ["roles", "rolebindings"]
+              verbs: ["get", "create"]
+            - apiGroups: ["networking.k8s.io"]
+              resources: ["networkpolicies"]
+              verbs: ["get", "create"]
+            - apiGroups: ["agents.x-k8s.io"]
+              resources: ["sandboxes"]
+              verbs: ["get", "list", "create", "delete"]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: paperclip-kubernetes-e2e
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: paperclip-kubernetes-e2e
+          subjects:
+            - kind: ServiceAccount
+              name: paperclip-kubernetes-e2e
+              namespace: paperclip-system
+          EOF
+          token="$(kubectl --kubeconfig "$KIND_KUBECONFIG" -n paperclip-system create token paperclip-kubernetes-e2e --duration=1h)"
+          cp "$KIND_KUBECONFIG" "$PAPERCLIP_PLUGIN_KUBECONFIG"
+          kubectl --kubeconfig "$PAPERCLIP_PLUGIN_KUBECONFIG" config set-credentials paperclip-kubernetes-e2e --token="$token" >/dev/null
+          kubectl --kubeconfig "$PAPERCLIP_PLUGIN_KUBECONFIG" config set-context "$KIND_CONTEXT" --cluster="$KIND_CONTEXT" --user=paperclip-kubernetes-e2e >/dev/null
+          kubectl --kubeconfig "$PAPERCLIP_PLUGIN_KUBECONFIG" config use-context "$KIND_CONTEXT" >/dev/null
+          kubectl --kubeconfig "$KIND_KUBECONFIG" auth can-i --as=system:serviceaccount:paperclip-system:paperclip-kubernetes-e2e create namespaces
+          kubectl --kubeconfig "$KIND_KUBECONFIG" auth can-i --as=system:serviceaccount:paperclip-system:paperclip-kubernetes-e2e create sandboxes.agents.x-k8s.io
+          test "$(kubectl --kubeconfig "$KIND_KUBECONFIG" auth can-i --as=system:serviceaccount:paperclip-system:paperclip-kubernetes-e2e delete deployments)" = no
+
+      - name: Run compiled plugin runtime E2E
+        id: e2e
+        continue-on-error: true
+        env:
+          RUN_K8S_INTEGRATION_TESTS: "1"
+          K8S_E2E_USE_DIST: "1"
+        run: |
+          set -o pipefail
+          pnpm -C packages/plugins/sandbox-providers/kubernetes test 2>&1 | tee "$RUNNER_TEMP/paperclip-kind-e2e.log"
+
+      - name: Write machine-readable agent test result
+        if: always()
+        env:
+          E2E_OUTCOME: ${{ steps.e2e.outcome }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          log="$RUNNER_TEMP/paperclip-kind-e2e.log"
+          checks='[]'
+          ids='PLUGIN_LOAD SANDBOX_CR READY MULTI_EXEC WORKSPACE_SYNC TERMINAL_STATES NETWORK_ISOLATION TOKEN_ISOLATION CLEANUP'
+          for id in $ids; do
+            if [ "$E2E_OUTCOME" = skipped ] || [ ! -f "$log" ]; then
+              executed=false
+              classification=unavailable
+              reason="runtime test was not started (outcome: ${E2E_OUTCOME:-unknown})"
+            elif grep -Fq "\"check\":\"$id\"" "$log"; then
+              executed=true
+              classification=passed
+              reason="runtime marker $id present in the disposable-cluster log"
+            else
+              executed=true
+              classification=failed
+              reason="runtime test started but marker $id was absent from the log"
+            fi
+            checks="$(jq --arg id "$id" --argjson executed "$executed" --arg classification "$classification" --arg reason "$reason" '. + [{id:$id,executed:$executed,classification:$classification,reason:$reason,risk:"runtime evidence is limited to the disposable Kind cluster",ciTreatment:"fail the PR when the E2E fails"}]' <<< "$checks")"
+          done
+          if [ "$E2E_OUTCOME" = success ]; then
+            ci_classification=passed
+            ci_reason='Vitest unit and disposable-cluster runtime tests completed'
+          elif [ "$E2E_OUTCOME" = skipped ]; then
+            ci_classification=unavailable
+            ci_reason='Vitest runtime job did not start'
+          else
+            ci_classification=failed
+            ci_reason="Vitest outcome: $E2E_OUTCOME"
+          fi
+          ci_executed=true
+          [ "$E2E_OUTCOME" = skipped ] && ci_executed=false
+          checks="$(jq --arg classification "$ci_classification" --arg reason "$ci_reason" --argjson executed "$ci_executed" '. + [{id:"CI_E2E",executed:$executed,classification:$classification,reason:$reason,risk:"the CI result is the gate for this disposable runtime",ciTreatment:"required for PR merge"}]' <<< "$checks")"
+          checks="$(jq '. + [{id:"H3_GATE",executed:false,classification:"skipped",reason:"H3 approval is intentionally out of scope for disposable CI",risk:"a passing disposable-cluster test does not authorize homelab activation",ciTreatment:"must remain blocked"}]' <<< "$checks")"
+          jq -n \
+            --arg subject "paperclip-kubernetes-kind-e2e:$HEAD_SHA" \
+            --argjson checks "$checks" \
+            '{contract:"agent-test-result-v1",subject:$subject,checks:$checks,transmission:{status:"complete",records:11}}' > "$RUNNER_TEMP/agent-test-result-v1.json"
+
+      - name: Collect disposable-cluster evidence
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/paperclip-kind-evidence"
+          kubectl --kubeconfig "$KIND_KUBECONFIG" get pods -A -o wide > "$RUNNER_TEMP/paperclip-kind-evidence/pods.txt" 2>&1 || true
+          kubectl --kubeconfig "$KIND_KUBECONFIG" get sandbox.agents.x-k8s.io -A -o yaml > "$RUNNER_TEMP/paperclip-kind-evidence/sandboxes.yaml" 2>&1 || true
+          kubectl --kubeconfig "$KIND_KUBECONFIG" get events -A --sort-by=.lastTimestamp > "$RUNNER_TEMP/paperclip-kind-evidence/events.txt" 2>&1 || true
+          cp "$RUNNER_TEMP/paperclip-kind-e2e.log" "$RUNNER_TEMP/paperclip-kind-evidence/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/agent-test-result-v1.json" "$RUNNER_TEMP/paperclip-kind-evidence/" 2>/dev/null || true
+
+      - name: Upload disposable-cluster evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: paperclip-kind-e2e-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/paperclip-kind-evidence
+          if-no-files-found: error
+
+      - name: Fail on E2E failure
+        if: steps.e2e.outcome != 'success'
+        run: exit 1
+
+      - name: Delete disposable Kind cluster
+        if: always()
+        run: |
+          kind delete cluster --name "$KIND_CLUSTER" || true
+          rm -f "$PAPERCLIP_PLUGIN_KUBECONFIG" "$KIND_KUBECONFIG"

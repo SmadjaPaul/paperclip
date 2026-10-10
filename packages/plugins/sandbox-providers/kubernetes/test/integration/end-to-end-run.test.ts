@@ -1,204 +1,298 @@
 /**
- * End-to-end integration test against a local kind cluster.
+ * One bounded runtime test for the v1beta1 Paperclip provider.
  *
- * PREREQUISITES (operator must perform before running this test):
- *   1. Create the kind cluster:
- *        kind create cluster --name paperclip
- *   2. Pre-load the alpine image so the Job can start without network access:
- *        docker pull alpine:3.20
- *        docker tag alpine:3.20 localhost/paperclip-agent:latest
- *        kind load docker-image localhost/paperclip-agent:latest --name paperclip
- *   3. For the sandbox-cr backend test, the agent-sandbox controller must be installed:
- *        kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox.yaml
- *      And a tini-bearing image pre-loaded (e.g. the same localhost/paperclip-agent:latest
- *      if it includes /usr/bin/tini and /bin/sh).
- *   4. Set the env var and run:
- *        RUN_K8S_INTEGRATION_TESTS=1 pnpm test
- *
- * The namespace is derived from companySlug ("spike-e2e") + namespacePrefix
- * ("paperclip-"), resolving to "paperclip-spike-e2e".
+ * The CI workflow creates an ephemeral Kind cluster, installs Cilium and the
+ * pinned Agent Sandbox v1.0.5 release, and gives the plugin a dedicated
+ * least-privilege kubeconfig. This test deliberately refuses to use an
+ * ambient ~/.kube/config (see _kind-harness.ts).
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import plugin from "../../src/plugin.js";
-import { createKubeConfig } from "../../src/kube-client.js";
-import { execInPod } from "../../src/pod-exec.js";
+import { promises as fs, readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createKubeConfig, makeKubeClients } from "../../src/kube-client.js";
 import { sandboxCrOrchestrator } from "../../src/sandbox-cr-orchestrator.js";
 import { deleteNamespaceIfExists, kubectl, readKindKubeconfig } from "./_kind-harness.js";
 
-const NAMESPACE = "paperclip-spike-e2e";
+const pluginModule = process.env.K8S_E2E_USE_DIST === "1"
+  ? await import("../../dist/index.js")
+  : await import("../../src/index.js");
+const plugin = pluginModule.plugin;
+const manifest = pluginModule.manifest;
 
-describe("plugin-kubernetes end-to-end", () => {
+const NAMESPACE = "paperclip-spike-e2e";
+const COMPANY_ID = "22222222-2222-2222-2222-222222222222";
+const OPENCODE_IMAGE =
+  "ghcr.io/paperclipai/agent-runtime-opencode@sha256:349fc68e609998f1d9fc77f94208d50263368b49631f746a51f819917d9b0d2d";
+
+function integrationEnabled(): boolean {
+  return process.env.RUN_K8S_INTEGRATION_TESTS === "1";
+}
+
+function pluginKubeconfig(): string {
+  const file = process.env.PAPERCLIP_PLUGIN_KUBECONFIG;
+  if (!file) {
+    throw new Error(
+      "PAPERCLIP_PLUGIN_KUBECONFIG is required for the CI E2E; refusing to use an ambient credential.",
+    );
+  }
+  return readFileSync(file, "utf8");
+}
+
+const config = () => ({
+  inCluster: false,
+  kubeconfig: pluginKubeconfig(),
+  companySlug: "spike-e2e",
+  adapterType: "opencode_local",
+  adapters: [
+    {
+      adapterType: "opencode_local",
+      enabled: true,
+      runtimeImage: OPENCODE_IMAGE,
+      envKeys: [],
+      allowFqdns: [],
+      probeCommand: [],
+    },
+  ],
+  backend: "sandbox-cr",
+  egressMode: "standard",
+  egressAllowFqdns: [],
+  egressAllowCidrs: [],
+  imageAllowList: [],
+  podActivityDeadlineSec: 30,
+});
+
+function jsonFromKubectl(command: string): Record<string, any> {
+  return JSON.parse(kubectl(command));
+}
+
+async function execute(
+  lease: { providerLeaseId: string | null; metadata?: Record<string, unknown> },
+  cfg: ReturnType<typeof config>,
+  command: string,
+  args: string[] = [],
+  timeoutMs = 15_000,
+) {
+  return plugin.definition.onEnvironmentExecute!({
+    driverKey: "kubernetes",
+    companyId: COMPANY_ID,
+    environmentId: "env-test-cr",
+    config: cfg,
+    lease,
+    command,
+    args,
+    cwd: "/workspace",
+    env: {},
+    timeoutMs,
+  });
+}
+
+async function assertNoRunScopedResources(runId: string): Promise<void> {
+  const resources = kubectl(
+    `get pods,secrets,sandboxes.agents.x-k8s.io,networkpolicies.networking.k8s.io -n ${NAMESPACE} -l paperclip.io/run-id=${runId} -o name 2>&1 || true`,
+  );
+  const orphans = resources
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^(pod|secret|sandbox|networkpolicy)(\.|\/)/.test(line));
+  expect(orphans).toEqual([]);
+}
+
+describe("plugin-kubernetes v1beta1 Kind runtime", () => {
   beforeAll(() => {
-    if (process.env.RUN_K8S_INTEGRATION_TESTS !== "1") return;
+    if (!integrationEnabled()) return;
     deleteNamespaceIfExists(NAMESPACE);
   });
 
   afterAll(() => {
-    if (process.env.RUN_K8S_INTEGRATION_TESTS !== "1") return;
+    if (!integrationEnabled()) return;
     deleteNamespaceIfExists(NAMESPACE);
   });
 
-  // ── Job backend (stable fallback) ─────────────────────────────────────────
-
-  it.runIf(process.env.RUN_K8S_INTEGRATION_TESTS === "1")(
-    "[job backend] acquireLease creates tenant + Job + supporting resources; releaseLease cascade-deletes them",
+  it.runIf(integrationEnabled())(
+    "loads, runs, syncs, isolates and cleans one Sandbox v1beta1 lease",
     async () => {
-      const kubeconfig = readKindKubeconfig();
-      const config = {
-        inCluster: false,
-        kubeconfig,
-        companySlug: "spike-e2e",
-        adapterType: "claude_local",
-        backend: "job",
-        imageAllowList: [] as string[],
-        podActivityDeadlineSec: 60,
-        jobTtlSecondsAfterFinished: 60,
-      };
+      expect(manifest.id).toBe("paperclip.kubernetes-sandbox-provider");
+      expect(manifest.entrypoints.worker).toBe("./dist/worker.js");
+      expect(plugin.definition.onEnvironmentAcquireLease).toBeTypeOf("function");
+      expect(plugin.definition.onEnvironmentExecute).toBeTypeOf("function");
+      console.log(JSON.stringify({ check: "PLUGIN_LOAD", manifest: manifest.id, dist: process.env.K8S_E2E_USE_DIST === "1" }));
 
+      const cfg = config();
+      const runId = "r-test-e2e-sandbox-cr";
       const lease = await plugin.definition.onEnvironmentAcquireLease!({
         driverKey: "kubernetes",
-        config,
-        runId: "r-test-e2e-job",
-        companyId: "11111111-1111-1111-1111-111111111111",
-        environmentId: "env-test",
-      });
-
-      expect(lease.providerLeaseId).toMatch(/^pc-/);
-
-      // Verify the Job exists in the tenant namespace
-      const jobs = kubectl(`get jobs -n ${NAMESPACE} -o name`);
-      expect(jobs).toContain(`job.batch/${lease.providerLeaseId}`);
-
-      // Verify the tenant namespace has the expected supporting resources
-      const all = kubectl(
-        `get sa,role,rolebinding,resourcequota,limitrange,networkpolicy -n ${NAMESPACE} -o name`,
-      );
-      expect(all).toContain("serviceaccount/paperclip-tenant-sa");
-      expect(all).toContain("role.rbac.authorization.k8s.io/paperclip-tenant-role");
-      expect(all).toContain("rolebinding.rbac.authorization.k8s.io/paperclip-tenant-rb");
-      expect(all).toContain("resourcequota/paperclip-quota");
-      expect(all).toContain("limitrange/paperclip-limits");
-      expect(all).toContain("networkpolicy.networking.k8s.io/paperclip-deny-all");
-      expect(all).toContain("networkpolicy.networking.k8s.io/paperclip-egress-allow");
-
-      // Verify the namespace has PSS-restricted labels
-      const ns = kubectl(`get namespace ${NAMESPACE} -o jsonpath='{.metadata.labels}'`);
-      expect(ns).toContain("pod-security.kubernetes.io/enforce");
-      expect(ns).toContain("restricted");
-
-      // Verify the per-run Secret exists (owned by the Job for cascade deletion)
-      const secrets = kubectl(`get secrets -n ${NAMESPACE} -o name`);
-      expect(secrets).toContain(`secret/${lease.providerLeaseId}-env`);
-
-      // Release — deletes the Job with Foreground propagation, which cascade-deletes
-      // the owned Secret via owner references set at acquireLease time.
-      await plugin.definition.onEnvironmentReleaseLease!({
-        driverKey: "kubernetes",
-        config,
-        providerLeaseId: lease.providerLeaseId,
-        leaseMetadata: lease.metadata,
-        companyId: "11111111-1111-1111-1111-111111111111",
-        environmentId: "env-test",
-      });
-
-      // Allow a brief grace window for Foreground propagation to finish.
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      const jobsAfter = kubectl(`get jobs -n ${NAMESPACE} -o name 2>&1 || true`);
-      expect(jobsAfter).not.toContain(`job.batch/${lease.providerLeaseId}`);
-    },
-    180_000,
-  );
-
-  // ── Sandbox-CR backend (alpha, requires agent-sandbox controller) ──────────
-
-  it.runIf(process.env.RUN_K8S_INTEGRATION_TESTS === "1")(
-    "[sandbox-cr backend] acquireLease creates Sandbox CR + supporting resources; pod becomes Ready; execInPod runs echo hello; releaseLease deletes CR",
-    async () => {
-      const kubeconfig = readKindKubeconfig();
-      const config = {
-        inCluster: false,
-        kubeconfig,
-        companySlug: "spike-e2e",
-        adapterType: "claude_local",
-        backend: "sandbox-cr",
-        imageAllowList: [] as string[],
-        podActivityDeadlineSec: 120,
-        jobTtlSecondsAfterFinished: 60,
-      };
-
-      const lease = await plugin.definition.onEnvironmentAcquireLease!({
-        driverKey: "kubernetes",
-        config,
-        runId: "r-test-e2e-sandbox-cr",
-        companyId: "22222222-2222-2222-2222-222222222222",
+        config: cfg,
+        runId,
+        companyId: COMPANY_ID,
         environmentId: "env-test-cr",
       });
 
       expect(lease.providerLeaseId).toMatch(/^pc-/);
-
-      // Verify the Sandbox CR exists in the tenant namespace
-      const sandboxes = kubectl(
-        `get sandboxes.agents.x-k8s.io -n ${NAMESPACE} -o name 2>&1`,
-      );
-      expect(sandboxes).toContain(`sandbox.agents.x-k8s.io/${lease.providerLeaseId}`);
-
-      // Verify the per-run Secret exists (owned by the Sandbox CR)
-      const secrets = kubectl(`get secrets -n ${NAMESPACE} -o name`);
-      expect(secrets).toContain(`secret/${lease.providerLeaseId}-env`);
-
-      // Wait for the Sandbox pod to become Ready
-      const kc = createKubeConfig({ inCluster: false, kubeconfig });
-      const { makeKubeClients } = await import("../../src/kube-client.js");
-      const clients = makeKubeClients(kc);
-
-      await sandboxCrOrchestrator.waitForCompletion(
-        clients,
-        NAMESPACE,
-        lease.providerLeaseId,
-        { timeoutMs: 90_000, pollMs: 3000 },
-      );
-
-      // Resolve the pod name
-      const podName = await sandboxCrOrchestrator.findPod(
-        clients,
-        NAMESPACE,
-        lease.providerLeaseId,
-      );
-      expect(podName).toBeTruthy();
-
-      // Exec a simple echo command into the running pod
-      const execResult = await execInPod(
-        kc,
-        NAMESPACE,
-        podName!,
-        "agent",
-        ["echo", "hello"],
-      );
-
-      expect(execResult.exitCode).toBe(0);
-      expect(execResult.stdout.trim()).toBe("hello");
-
-      // Release — deletes the Sandbox CR with Foreground propagation.
-      await plugin.definition.onEnvironmentReleaseLease!({
+      const leaseId = lease.providerLeaseId!;
+      const realized = await plugin.definition.onEnvironmentRealizeWorkspace!({
         driverKey: "kubernetes",
-        config,
-        providerLeaseId: lease.providerLeaseId,
-        leaseMetadata: lease.metadata,
-        companyId: "22222222-2222-2222-2222-222222222222",
+        companyId: COMPANY_ID,
         environmentId: "env-test-cr",
+        config: cfg,
+        lease,
+        workspace: { remotePath: "/workspace" },
       });
+      const activeLease = {
+        ...lease,
+        metadata: { ...lease.metadata, ...realized.metadata, remoteCwd: realized.cwd },
+      };
 
-      // Allow a brief grace window for Foreground propagation.
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      try {
+        const sandbox = jsonFromKubectl(
+          `get sandbox.agents.x-k8s.io ${leaseId} -n ${NAMESPACE} -o json`,
+        );
+        expect(sandbox.apiVersion).toBe("agents.x-k8s.io/v1beta1");
+        expect(sandbox.kind).toBe("Sandbox");
+        console.log(JSON.stringify({ check: "SANDBOX_CR", apiVersion: sandbox.apiVersion, sha: process.env.GITHUB_SHA ?? null }));
 
-      const sandboxesAfter = kubectl(
-        `get sandboxes.agents.x-k8s.io -n ${NAMESPACE} -o name 2>&1 || true`,
-      );
-      expect(sandboxesAfter).not.toContain(
-        `sandbox.agents.x-k8s.io/${lease.providerLeaseId}`,
-      );
+        const adminClients = makeKubeClients(
+          createKubeConfig({ inCluster: false, kubeconfig: readKindKubeconfig() }),
+        );
+        await sandboxCrOrchestrator.waitForCompletion(adminClients, NAMESPACE, leaseId, {
+          timeoutMs: 120_000,
+          pollMs: 1_000,
+        });
+
+        const readySandbox = jsonFromKubectl(
+          `get sandbox.agents.x-k8s.io ${leaseId} -n ${NAMESPACE} -o json`,
+        );
+        const generation = Number(readySandbox.metadata?.generation);
+        const ready = readySandbox.status?.conditions?.find((condition: any) => condition.type === "Ready");
+        expect(ready?.status).toBe("True");
+        expect(Number(ready?.observedGeneration)).toBe(generation);
+        expect(readySandbox.status?.podName).toBeTruthy();
+        console.log(JSON.stringify({ check: "READY", generation, observedGeneration: ready.observedGeneration }));
+
+        const podName = String(readySandbox.status.podName);
+        const pod = jsonFromKubectl(`get pod ${podName} -n ${NAMESPACE} -o json`);
+        expect(pod.spec?.automountServiceAccountToken).toBe(false);
+        expect(pod.spec?.volumes?.some((volume: any) => volume.projected?.sources?.some((source: any) => source.serviceAccountToken))).toBe(false);
+        expect(pod.spec?.containers?.[0]?.image).toBe(OPENCODE_IMAGE);
+        console.log(JSON.stringify({ check: "TOKEN_ISOLATION", serviceAccountTokenMounted: false }));
+
+        const policies = kubectl(`get networkpolicy -n ${NAMESPACE} -o name`);
+        expect(policies).toContain("networkpolicy.networking.k8s.io/paperclip-deny-all");
+        expect(policies).toContain("networkpolicy.networking.k8s.io/paperclip-egress-allow");
+
+        const first = await execute(activeLease, cfg, "sh", ["-c", "test -d /workspace && printf first > /workspace/multi.txt"]);
+        expect(first).toMatchObject({ exitCode: 0, timedOut: false });
+        const second = await execute(activeLease, cfg, "cat", ["/workspace/multi.txt"]);
+        expect(second).toMatchObject({ exitCode: 0, stdout: "first" });
+        console.log(JSON.stringify({ check: "MULTI_EXEC", exitCodes: [first.exitCode, second.exitCode] }));
+
+        const streams = await execute(activeLease, cfg, "sh", ["-c", "printf stdout; printf stderr >&2; exit 7"]);
+        expect(streams.exitCode).toBe(7);
+        expect(streams.stdout).toBe("stdout");
+        expect(streams.stderr).toBe("stderr");
+
+        const timeout = await execute(activeLease, cfg, "sleep", ["30"], 1_000);
+        expect(timeout.timedOut).toBe(true);
+        expect(timeout.exitCode).toBeNull();
+        console.log(JSON.stringify({ check: "TERMINAL_STATES", exitCode: streams.exitCode, timeout: timeout.timedOut }));
+
+        const nodeProbe = await execute(activeLease, cfg, "node", ["-e", "process.stdout.write(process.version)"]);
+        expect(nodeProbe.exitCode).toBe(0);
+        const dnsProbe = await execute(activeLease, cfg, "node", [
+          "-e",
+          "require('dns').lookup('kubernetes.default.svc', error => process.exit(error ? 41 : 0))",
+        ], 8_000);
+        expect(dnsProbe.exitCode).toBe(0);
+        const network = await execute(activeLease, cfg, "node", [
+          "-e",
+          "const https=require('https'); const r=https.get('https://kubernetes.default.svc/version',{rejectUnauthorized:false,timeout:1500},()=>process.exit(0)); r.on('error',()=>process.exit(42)); r.on('timeout',()=>{r.destroy();process.exit(43)});",
+        ], 8_000);
+        expect(network.exitCode).not.toBe(0);
+        console.log(JSON.stringify({ check: "NETWORK_ISOLATION", exitCode: network.exitCode, timedOut: network.timedOut }));
+
+        const hostDir = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-k8s-e2e-"));
+        try {
+          const source = path.join(hostDir, "input.txt");
+          const target = path.join(hostDir, "output.txt");
+          await fs.writeFile(source, "synced-by-paperclip\n", "utf8");
+          const syncParams = {
+            driverKey: "kubernetes",
+            companyId: COMPANY_ID,
+            environmentId: "env-test-cr",
+            config: cfg,
+            lease: activeLease,
+            operations: [{
+              operationId: "sync-in",
+              files: [{ sourcePath: source, targetPath: "/workspace/sync/input.txt", kind: "file" as const }],
+            }],
+          };
+          const syncIn = await plugin.definition.onEnvironmentSyncIn!(syncParams);
+          expect(syncIn.operations[0]).toMatchObject({ operationId: "sync-in", filesTransferred: 1 });
+          const syncOut = await plugin.definition.onEnvironmentSyncOut!({
+            ...syncParams,
+            operations: [{
+              operationId: "sync-out",
+              files: [{ sourcePath: "/workspace/sync/input.txt", targetPath: target, kind: "file" as const }],
+            }],
+          });
+          expect(syncOut.operations[0]).toMatchObject({ operationId: "sync-out", filesTransferred: 1 });
+          await expect(fs.readFile(target, "utf8")).resolves.toBe("synced-by-paperclip\n");
+          console.log(JSON.stringify({ check: "WORKSPACE_SYNC", bytes: syncIn.operations[0].bytesTransferred }));
+        } finally {
+          await fs.rm(hostDir, { recursive: true, force: true });
+        }
+
+        const resumed = await plugin.definition.onEnvironmentResumeLease!({
+          driverKey: "kubernetes",
+          companyId: COMPANY_ID,
+          environmentId: "env-test-cr",
+          config: cfg,
+          providerLeaseId: leaseId,
+          leaseMetadata: activeLease.metadata,
+        });
+        expect(resumed.providerLeaseId).toBe(leaseId);
+        console.log(JSON.stringify({ check: "LEASE_RESUME", providerLeaseId: leaseId }));
+
+        const deletingLease = await plugin.definition.onEnvironmentAcquireLease!({
+          driverKey: "kubernetes",
+          config: cfg,
+          runId: "r-test-e2e-delete-during-wait",
+          companyId: COMPANY_ID,
+          environmentId: "env-test-delete",
+        });
+        const deletingId = deletingLease.providerLeaseId!;
+        const deletingWait = sandboxCrOrchestrator.waitForCompletion(adminClients, NAMESPACE, deletingId, {
+          timeoutMs: 30_000,
+          pollMs: 100,
+        });
+        await plugin.definition.onEnvironmentReleaseLease!({
+          driverKey: "kubernetes",
+          config: cfg,
+          providerLeaseId: deletingId,
+          leaseMetadata: deletingLease.metadata,
+          companyId: COMPANY_ID,
+          environmentId: "env-test-delete",
+        });
+        await expect(deletingWait).rejects.toThrow();
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        expect(kubectl(`get sandbox.agents.x-k8s.io ${deletingId} -n ${NAMESPACE} 2>&1 || true`)).not.toContain(deletingId);
+        await assertNoRunScopedResources("r-test-e2e-delete-during-wait");
+        console.log(JSON.stringify({ check: "DELETION_DURING_WAIT", providerLeaseId: deletingId }));
+      } finally {
+        await plugin.definition.onEnvironmentReleaseLease!({
+          driverKey: "kubernetes",
+          config: cfg,
+          providerLeaseId: leaseId,
+          leaseMetadata: activeLease.metadata,
+          companyId: COMPANY_ID,
+          environmentId: "env-test-cr",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        await assertNoRunScopedResources(runId);
+        expect(kubectl(`get namespace ${NAMESPACE} -o name`)).toContain(`namespace/${NAMESPACE}`);
+        console.log(JSON.stringify({ check: "CLEANUP", runId, orphanedResources: false, tenantNamespaceRetained: true }));
+      }
     },
     300_000,
   );
