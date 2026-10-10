@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKubeConfig, makeKubeClients } from "../../src/kube-client.js";
-import { sandboxCrOrchestrator } from "../../src/sandbox-cr-orchestrator.js";
+import { findPodForSandbox, sandboxCrOrchestrator } from "../../src/sandbox-cr-orchestrator.js";
 import { deleteNamespaceIfExists, kubectl, readKindKubeconfig } from "./_kind-harness.js";
 
 const pluginModule = process.env.K8S_E2E_USE_DIST === "1"
@@ -208,10 +208,11 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
         const ready = readySandbox.status?.conditions?.find((condition: any) => condition.type === "Ready");
         expect(ready?.status).toBe("True");
         expect(Number(ready?.observedGeneration)).toBe(generation);
-        expect(readySandbox.status?.podName).toBeTruthy();
+        const readyPodName = await findPodForSandbox(adminClients, NAMESPACE, leaseId);
+        expect(readyPodName).toBeTruthy();
         console.log(JSON.stringify({ check: "READY", generation, observedGeneration: ready.observedGeneration }));
 
-        const podName = String(readySandbox.status.podName);
+        const podName = String(readyPodName);
         const pod = jsonFromKubectl(`get pod ${podName} -n ${NAMESPACE} -o json`);
         expect(pod.spec?.automountServiceAccountToken).toBe(false);
         expect(pod.spec?.volumes?.some((volume: any) => volume.projected?.sources?.some((source: any) => source.serviceAccountToken))).toBe(false);
