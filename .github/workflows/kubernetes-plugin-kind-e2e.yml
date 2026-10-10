@@ -1,14 +1,7 @@
 name: Kubernetes plugin Kind E2E
 
 on:
-  pull_request:
-    paths:
-      - packages/plugins/sandbox-providers/kubernetes/**
-      - packages/plugins/sdk/**
-      - packages/shared/**
-      - scripts/generate-plugin-package-json.mjs
-      - scripts/link-plugin-dev-sdk.mjs
-      - .github/workflows/kubernetes-plugin-kind-e2e.yml
+  workflow_call:
 
 permissions:
   contents: read

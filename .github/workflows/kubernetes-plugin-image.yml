@@ -12,6 +12,7 @@ on:
       - scripts/link-plugin-dev-sdk.mjs
       - scripts/verify-kubernetes-plugin-image.mjs
       - .github/workflows/kubernetes-plugin-image.yml
+      - .github/workflows/kubernetes-plugin-kind-e2e.yml
 
 permissions:
   contents: read
@@ -68,3 +69,9 @@ jobs:
             -e EXPECTED_PAPERCLIP_COMMIT="$EXPECTED_SHA" \
             "$IMAGE" \
             /app/scripts/verify-kubernetes-plugin-image.mjs
+
+  kind-e2e:
+    name: Disposable Kind Sandbox E2E
+    uses: ./.github/workflows/kubernetes-plugin-kind-e2e.yml
+    permissions:
+      contents: read
