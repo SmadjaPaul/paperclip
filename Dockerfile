@@ -254,6 +254,9 @@ CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/di
 # to the image. Growing the list is a one-line workflow change.
 FROM build AS cloud-plugins
 ARG CLOUD_BUNDLED_PLUGINS="daytona"
+# The cloud image replaces the development SDK link with exact locally packed
+# runtime packages so it never resolves TypeScript workspace sources or runs
+# an npm install at container startup.
 RUN set -eu; \
   mkdir -p /tmp/paperclip-plugin-deps; \
   pnpm -C packages/shared pack --pack-destination /tmp/paperclip-plugin-deps >/dev/null; \
@@ -266,10 +269,6 @@ RUN set -eu; \
   for name in $CLOUD_BUNDLED_PLUGINS; do \
     dir="packages/plugins/sandbox-providers/$name"; \
     test -d "$dir" || { echo "ERROR: unknown sandbox provider '$name'" >&2; exit 1; }; \
-    # The root postinstall links the development SDK into excluded plugins.
-    # Replace that link with the exact locally packed SDK and shared runtime
-    # packages so the final image never resolves TypeScript workspace sources
-    # or attempts an npm install at startup.
     pnpm -C "$dir" install --ignore-workspace --no-lockfile; \
     rm -rf "$dir/node_modules/@paperclipai/plugin-sdk"; \
     pnpm -C "$dir" add --save-prod --ignore-workspace --no-lockfile "$sharedTar" "$sdkTar"; \
