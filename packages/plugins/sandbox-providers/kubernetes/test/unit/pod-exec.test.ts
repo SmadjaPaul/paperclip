@@ -49,6 +49,9 @@ describe("exec WebSocket frame normalization", () => {
     const bytes = new Uint8Array([3, 1, 2]);
     expect(normalizeWebSocketMessageData(bytes.buffer)).toEqual(Buffer.from(bytes));
     expect(normalizeWebSocketMessageData(bytes)).toEqual(Buffer.from(bytes));
+    expect(normalizeWebSocketMessageData([Buffer.from([3]), Buffer.from([1, 2])])).toEqual(
+      Buffer.from(bytes),
+    );
   });
 
   it("preserves text and Buffer frames", () => {

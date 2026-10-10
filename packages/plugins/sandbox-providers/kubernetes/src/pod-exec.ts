@@ -19,7 +19,10 @@
  */
 
 import { Exec } from "@kubernetes/client-node";
-import { WebSocketHandler } from "@kubernetes/client-node/dist/web-socket-handler.js";
+import {
+  WebSocketHandler,
+  type WebSocketInterface,
+} from "@kubernetes/client-node/dist/web-socket-handler.js";
 import WebSocket from "isomorphic-ws";
 import { PassThrough } from "node:stream";
 import type { Readable, Writable } from "node:stream";
@@ -44,36 +47,74 @@ export function normalizeWebSocketMessageData(data: unknown): unknown {
   if (ArrayBuffer.isView(data)) {
     return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
   }
+  if (Array.isArray(data) && data.every((part) => Buffer.isBuffer(part))) {
+    return Buffer.concat(data);
+  }
   return data;
 }
 
-function createExecWebSocketHandler(kc: KubeConfig): WebSocketHandler {
-  return new WebSocketHandler(kc, (uri, protocols, opts) => {
-    const socket = new WebSocket(uri, protocols, opts);
-    socket.binaryType = "nodebuffer";
+function createExecWebSocketHandler(kc: KubeConfig): WebSocketInterface {
+  const protocols = [
+    "v5.channel.k8s.io",
+    "v4.channel.k8s.io",
+    "v3.channel.k8s.io",
+    "v2.channel.k8s.io",
+    "channel.k8s.io",
+  ];
 
-    // Keep client-node's authentication, protocol negotiation and frame
-    // demultiplexing, but normalize the event payload at its socket boundary.
-    // The proxy also binds methods because WebSocket methods require their
-    // native instance as `this` when Exec later calls close().
-    return new Proxy(socket, {
-      get(target, property) {
-        const value = Reflect.get(target, property, target);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-      set(target, property, value) {
-        if (property === "onmessage" && typeof value === "function") {
-          return Reflect.set(
-            target,
-            property,
-            (event: { data: unknown }) => value({ ...event, data: normalizeWebSocketMessageData(event.data) }),
-            target,
-          );
-        }
-        return Reflect.set(target, property, value, target);
-      },
-    });
-  });
+  return {
+    async connect(path, textHandler, binaryHandler) {
+      const cluster = kc.getCurrentCluster();
+      if (!cluster) throw new Error("No cluster is defined.");
+      const server = cluster.server;
+      const ssl = server.startsWith("https://");
+      const target = ssl ? server.slice(8) : server.slice(7);
+      const uri = `${ssl ? "wss" : "ws"}://${target}${path}`;
+      const opts = {};
+      await kc.applyToHTTPSOptions(opts);
+
+      return await new Promise<WebSocket>((resolve, reject) => {
+        const client = new WebSocket(uri, protocols, opts);
+        client.binaryType = "nodebuffer";
+        let opened = false;
+
+        client.on("open", () => {
+          opened = true;
+          resolve(client);
+        });
+        client.on("error", (err: unknown) => {
+          if (!opened) reject(err);
+        });
+        client.on("message", (data: unknown) => {
+          const normalized = normalizeWebSocketMessageData(data);
+          if (typeof normalized === "string") {
+            if (normalized.charCodeAt(0) === WebSocketHandler.CloseStream) {
+              WebSocketHandler.closeStream(normalized.charCodeAt(1), {
+                stdin: process.stdin,
+                stdout: process.stdout,
+                stderr: process.stderr,
+              });
+            }
+            if (textHandler && !textHandler(normalized)) client.close();
+            return;
+          }
+          if (!Buffer.isBuffer(normalized)) return;
+
+          const streamNum = normalized.readUint8(0);
+          if (streamNum === WebSocketHandler.CloseStream) {
+            WebSocketHandler.closeStream(normalized.readInt8(1), {
+              stdin: process.stdin,
+              stdout: process.stdout,
+              stderr: process.stderr,
+            });
+          }
+          if (binaryHandler && !binaryHandler(streamNum, normalized.subarray(1))) {
+            client.close();
+          }
+        });
+      });
+    },
+  };
 }
 
 // Single-quote a string for safe interpolation into a sh -c script. Wraps in
