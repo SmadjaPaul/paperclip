@@ -80,7 +80,11 @@ image="${OPENCODE_IMAGE:?}"
 docker pull "$image"
 docker image inspect "$image" --format '{{range .RepoDigests}}{{println .}}{{end}}' | grep -Fx "$image"
 test "$(docker image inspect "$image" --format '{{.Architecture}}')" = amd64
-kind load docker-image "$image" --name "$cluster"
+# Do not use `kind load docker-image` here. Kind's import path can register
+# digest-pinned images under a temporary docker.io/library/import-* name; the
+# containerd checkpoint-image probe then fails CreateContainer before the
+# actual image can start. The image is public, so let the kubelet pull the
+# exact verified digest directly from GHCR instead.
 
 kubectl --kubeconfig "$KIND_KUBECONFIG" apply -f - <<'EOF'
 apiVersion: v1
