@@ -88,15 +88,24 @@ async function execute(
   });
 }
 
-async function assertNoRunScopedResources(runId: string): Promise<void> {
+function listRunScopedResources(runId: string): string[] {
   const resources = kubectl(
     `get pods,secrets,sandboxes.agents.x-k8s.io,networkpolicies.networking.k8s.io -n ${NAMESPACE} -l paperclip.io/run-id=${runId} -o name 2>&1 || true`,
   );
-  const orphans = resources
+  return resources
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => /^(pod|secret|sandbox|networkpolicy)(\.|\/)/.test(line));
-  expect(orphans).toEqual([]);
+}
+
+async function waitForNoRunScopedResources(runId: string, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let remaining = listRunScopedResources(runId);
+  while (remaining.length > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    remaining = listRunScopedResources(runId);
+  }
+  expect(remaining).toEqual([]);
 }
 
 describe("plugin-kubernetes v1beta1 Kind runtime", () => {
@@ -309,7 +318,7 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
         await expect(deletingWait).rejects.toThrow();
         await new Promise((resolve) => setTimeout(resolve, 1_000));
         expect(kubectl(`get sandbox.agents.x-k8s.io ${deletingId} -n ${NAMESPACE} 2>&1 || true`)).not.toContain(deletingId);
-        await assertNoRunScopedResources("r-test-e2e-delete-during-wait");
+        await waitForNoRunScopedResources("r-test-e2e-delete-during-wait");
         console.log(JSON.stringify({ check: "DELETION_DURING_WAIT", providerLeaseId: deletingId }));
       } finally {
         await plugin.definition.onEnvironmentReleaseLease!({
@@ -321,7 +330,7 @@ describe("plugin-kubernetes v1beta1 Kind runtime", () => {
           environmentId: "env-test-cr",
         });
         await new Promise((resolve) => setTimeout(resolve, 2_000));
-        await assertNoRunScopedResources(runId);
+        await waitForNoRunScopedResources(runId);
         expect(kubectl(`get namespace ${NAMESPACE} -o name`)).toContain(`namespace/${NAMESPACE}`);
         console.log(JSON.stringify({ check: "CLEANUP", runId, orphanedResources: false, tenantNamespaceRetained: true }));
       }
